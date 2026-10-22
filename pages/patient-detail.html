@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patient Details — Rever Medical Center, Inc.</title>
+  <link rel="icon" href="../assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script>
+    const session = requireAuth();
+    if (!session) throw new Error("auth");
+
+    const urlParams = new URLSearchParams(location.search);
+    const patientId = urlParams.get("id");
+    const patient = DB.patients.find(patientId);
+
+    if (!patient) {
+      renderLayout({ page: "patient-detail.html", title: "Not Found", content: `
+        <div class="card"><div class="empty"><div class="e-ico">❓</div><h4>Patient not found</h4>
+        <p>Binalik sa listahan...</p><a href="patients.html" class="btn btn-primary mt-16">Back to Records</a></div></div>` });
+    } else {
+      renderLayout({
+        page: "patient-detail.html",
+        title: patient.fullName,
+        subtitle: `<a href="patients.html" class="text-sm fw-600">← Back to records</a>
+          <span class="pagebar-meta"> ${App.statusBadge(patient.status)} <span class="text-muted">${DB.clinics.name(patient.clinicId)}</span></span>`,
+        actions: session.role === "doctor"
+          ? `<button class="btn btn-outline btn-sm" onclick="openAbstract('${patient.id}')" title="Medical abstract">📄 Abstract</button>
+             <button class="btn btn-outline btn-sm" onclick="printRecord('${patient.id}')" title="Print the full patient record">📋 Record</button>
+             <button class="btn btn-primary btn-sm" onclick="printReceta('${patient.id}')" title="Print prescription (receta)">💊 Receta</button>`
+          : "",
+        content: buildDetail(patient),
+      });
+      // Presentation: pre-fill the secretary / doctor intake forms so they are ready on open.
+      if (typeof setTimeout === "function") setTimeout(() => prefillDemoForms(patient), 0);
+    }
+
+    function coverageRow(p) {
+      const rows = [
+        { label: "Employed", val: p.employed },
+        { label: "HMO Member", val: p.hmo },
+        { label: "PhilHealth Member", val: p.philhealth },
+        { label: "YAKAP Member", val: p.yakap },
+      ];
+      return `<div class="grid grid-4 gap-10">` + rows.map((r) => `
+        <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+          <div class="text-sm text-muted">${r.label}</div>
+          <div class="mt-10">${App.ynPill(r.val)}</div>
+        </div>`).join("") + `</div>`;
+    }
+
+    function infoGrid(p) {
+      const d = p.details || {};
+      const em = p.emergency || {};
+      const alerts = p.medicalAlerts || {};
+      const items = [
+        ["Patient ID", p.id],
+        ["Age", p.age + " yrs"],
+        ["Birthdate", fmtDate(p.birthdate)],
+        ["Gender", p.gender || "—"],
+        ["Phone Number", p.contact || "—"],
+        ["Email Address", p.email || "—"],
+        ["Address", p.address || "—"],
+        ["Birthplace", d.birthplace],
+        ["Nationality", d.nationality],
+        ["Religion", d.religion],
+        ["Marital Status", d.maritalStatus],
+        ["Occupation", d.occupation],
+        ["Company", d.companyName],
+        ["Father's Name", d.fathersName],
+        ["Mother's Name", d.mothersName],
+        ["Mother's Cellphone", d.mothersCellphone],
+        ["Mother's Age", d.mothersAge],
+        ["Spouse's Name", d.spousesName],
+        ["Allergy Status", alerts.allergyStatus === "none" ? "No known allergies" : alerts.allergyStatus === "known" ? "Known allergy" : alerts.allergyStatus === "unknown" ? "Not assessed" : ""],
+        ["Known Allergies", alerts.allergies],
+        ["Current Medications", alerts.currentMedications],
+        ["Clinic Room", DB.clinics.label(p.clinicId)],
+        ["Registered By", DB.users.name(p.registeredBy)],
+        ["Registered", fmtDateTime(p.registeredAt)],
+        ["Assigned Secretary", p.assignedSecretary ? DB.users.name(p.assignedSecretary) : ""],
+        ["Assigned Doctor", p.assignedDoctor ? DB.users.name(p.assignedDoctor) : ""],
+        ["Sent to Doctor", p.sentToDoctorAt ? fmtDateTime(p.sentToDoctorAt) : ""],
+        ["Fee", fmtMoney(p.fee)],
+      ].filter((it) => it[1] !== undefined && it[1] !== null && String(it[1]).trim() !== "");
+      let html = `<div class="info-grid">` + items.map((it) => `
+        <div class="info-row"><div class="ir-label">${it[0]}</div><div class="ir-value">${App.esc(it[1])}</div></div>`).join("") + `</div>`;
+      if (em.name || em.contact || em.address || em.relationship) {
+        html += `<div class="section-title" style="margin-top:20px">Emergency Contact</div><div class="info-grid">` + [
+          ["Name", em.name], ["Relationship", em.relationship], ["Address", em.address], ["Contact Number", em.contact]
+        ].filter((it) => it[1]).map((it) => `
+          <div class="info-row"><div class="ir-label">${it[0]}</div><div class="ir-value">${App.esc(it[1])}</div></div>`).join("") + `</div>`;
+      }
+      return html;
+    }
+
+    function vitalsView(p) {
+      if (!p.vitals) return `<div class="text-muted text-sm">⏳ Wala pang vital signs na naitala.</div>`;
+      const v = p.vitals;
+      const items = [
+        ["❤️ Blood Pressure", v.bp, "mmHg"],
+        ["🌡️ Temperature", v.temp, "°C"],
+        ["❤️ Heart Rate", v.hr, "bpm"],
+        ["💨 Resp. Rate", v.rr, "/min"],
+        ["⚖️ Weight", v.weight, "kg"],
+        ["📏 Height", v.height, "cm"],
+        ["🅾️ SpO2", v.spo2, "%"],
+      ];
+      return `<div class="grid grid-4 gap-10">` + items.map((it) => `
+        <div style="border:1px solid var(--border);border-radius:8px;padding:12px;">
+          <div class="text-sm text-muted">${it[0]}</div>
+          <div class="fw-700" style="font-size:18px;margin-top:4px;">${App.esc(it[1] || "—")} <span class="text-sm text-muted fw-600">${it[2]}</span></div>
+        </div>`).join("") + `</div>`;
+    }
+
+    function buildDetail(p) {
+      const role = session.role;
+      let actionPanel = "";
+
+      // SECRETARY: start intake, then record vitals and hand off to a doctor.
+      if (role === "secretary" && p.status === STATUS.TRANSFERRED) {
+        actionPanel = secretaryStartPanel(p);
+      } else if (role === "secretary" && p.status === STATUS.WITH_SECRETARY) {
+        actionPanel = secretaryPanel(p);
+      }
+      // DOCTOR: consultation (when status = waiting_doctor)
+      else if (role === "doctor" && p.status === STATUS.WAITING_DOCTOR
+        && (!p.assignedDoctor || p.assignedDoctor === session.userId)) {
+        actionPanel = doctorPanel(p);
+      }
+      // Fallback: show completed consultation if any
+      if (!actionPanel && role === "doctor" && p.status === STATUS.COMPLETED) {
+        actionPanel = `<div class="card card-pad"><div class="badge badge-success mb-16">✓ Consultation completed</div>
+          <div class="text-sm text-muted">Nakumpleto na ang consultation ng pasyenteng ito.</div></div>`;
+      }
+
+      return `
+        <div class="card card-pad mb-20">
+          <div class="section-title">Patient Journey</div>
+          ${App.flowSteps(p.status)}
+        </div>
+
+        ${actionPanel ? `<div class="mb-20">${actionPanel}</div>` : ""}
+
+        <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start;">
+          <div class="card card-pad">
+            <div class="section-title">Patient Information</div>
+            ${infoGrid(p)}
+            ${p.complaint ? `<div class="divider"></div><div class="info-row"><div class="ir-label">Chief Complaint</div><div class="ir-value" style="white-space:pre-wrap;">${App.esc(p.complaint)}</div></div>` : ""}
+            <div class="divider"></div>
+            <div class="section-title">Coverage &amp; Status</div>
+            ${coverageRow(p)}
+          </div>
+          <div>
+            <div class="card card-pad mb-20">
+              <div class="section-title">Vital Signs</div>
+              ${vitalsView(p)}
+            </div>
+            <div class="card card-pad">
+              <div class="section-title">Medical History / Consultation</div>
+              ${consultationView(p)}
+            </div>
+          </div>
+        </div>
+
+        ${abstractModal(p)}
+      `;
+    }
+
+    /* ---------- MEDICAL ABSTRACT ---------- */
+    function abstractModal(p) {
+      return `
+        <div class="modal-backdrop" id="abstractModal">
+          <div class="modal modal-lg">
+            <div class="modal-head">
+              <h3>📄 Medical Abstract — ${App.esc(p.fullName)}</h3>
+              <button class="modal-close" onclick="App.closeModal('abstractModal')">&times;</button>
+            </div>
+            <div class="modal-body" id="abstractBody">${buildAbstract(p)}</div>
+            <div class="modal-foot">
+              <button class="btn btn-outline" onclick="App.closeModal('abstractModal')">Close</button>
+              <button class="btn btn-primary" onclick="printAbstract('${p.id}')">🖨️ Print Abstract</button>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function buildAbstract(p) {
+      const c = p.consultation || {};
+      const v = p.vitals || {};
+      const d = p.details || p.demographics || {};
+      const em = p.emergency || {};
+      const alerts = p.medicalAlerts || {};
+      const row = (label, val) => `
+        <div class="ab-row"><div class="ab-label">${label}</div><div class="ab-value">${App.esc(val || "—")}</div></div>`;
+      const yn = (val) => val ? "Yes" : "No";
+      const infoGroup = (title, fields) => `
+        <div class="ab-info-group">
+          <div class="ab-info-group-title">${title}</div>
+          ${fields.map(([label, value]) => `<div class="ab-info-pair"><span>${label}</span><strong>${App.esc(value || "—")}</strong></div>`).join("")}
+        </div>`;
+      const vital = (label, val, unit) => val
+        ? `<div class="ab-vital"><span class="v-l">${label}</span><span class="v-v">${App.esc(val)}<span class="v-u"> ${unit}</span></span></div>`
+        : "";
+      const vitals = [
+        vital("BP", v.bp, "mmHg"), vital("Temp", v.temp, "°C"), vital("HR", v.hr, "bpm"),
+        vital("RR", v.rr, "/min"), vital("Weight", v.weight, "kg"), vital("Height", v.height, "cm"),
+        vital("SpO2", v.spo2, "%"),
+      ].join("");
+      const issued = new Date();
+      const clinicPhone = DB.clinics.phone(p.clinicId);
+      return `
+        <div class="ab-sheet ab-abstract-sheet">
+          <div class="ab-head">
+            <img class="ab-logo" src="../assets/images/rmci-logo.jpg" alt="Rever Medical Center" />
+            <div class="ab-head-txt">
+              <div class="ab-org">Rever Medical Center, Inc.</div>
+              <div class="ab-contact">${clinicPhone ? "Tel. " + App.esc(clinicPhone) + " • " : ""}Official Health Record</div>
+            </div>
+            <div class="ab-doc">
+              <div class="d-l">Date Issued</div>
+              <div class="d-v">${fmtDate(issued.toISOString())}</div>
+            </div>
+          </div>
+          <div class="ab-titlebar"><span class="ab-title">MEDICAL ABSTRACT</span></div>
+          <div class="ab-strip">
+            <span class="s-name">${App.esc(p.fullName)}</span>
+            <span class="s-meta">ID ${App.esc(p.id)}</span>
+            <span class="s-meta">${p.age != null ? p.age + " yrs" : "—"} • ${App.esc(p.gender || "—")}</span>
+            <span class="s-meta">${App.esc(DB.clinics.label(p.clinicId))}</span>
+          </div>
+          <div class="ab-grid">
+            <div class="ab-box">
+              <div class="ab-box-title"><span class="ab-num">1</span> Patient Information</div>
+              <div class="ab-info-grid">
+                ${infoGroup("Identity", [
+                  ["MRN / Patient ID", p.id], ["Full Name", p.fullName], ["Last Name", d.lastName],
+                  ["First Name", d.firstName], ["Middle Name", d.middleName],
+                  ["Age / Gender", (p.age != null ? p.age + " yrs" : "—") + " / " + (p.gender || "—")],
+                  ["Birthdate", fmtDate(p.birthdate)],
+                ])}
+                ${infoGroup("Personal Details", [
+                  ["Birthplace", d.birthplace], ["Nationality", d.nationality], ["Religion", d.religion],
+                  ["Marital Status", d.maritalStatus],
+                ])}
+                ${infoGroup("Contact Details", [
+                  ["Cellphone Number", p.contact], ["Email Address", p.email], ["Complete Address", p.address],
+                ])}
+                ${infoGroup("Employment", [
+                  ["Occupation", d.occupation], ["Company Name", d.companyName], ["Employed", yn(p.employed)],
+                ])}
+                ${infoGroup("Family Details", [
+                  ["Father's Name", d.fathersName], ["Spouse's Name", d.spousesName],
+                  ["Mother's Name", d.mothersName], ["Mother's Cellphone", d.mothersCellphone],
+                  ["Mother's Age", d.mothersAge],
+                ])}
+                ${infoGroup("Emergency Contact", [
+                  ["Name", em.name], ["Relationship", em.relationship],
+                  ["Contact Number", em.contact], ["Address", em.address],
+                ])}
+                ${infoGroup("Coverage", [
+                  ["HMO Member", yn(p.hmo)], ["PhilHealth Member", yn(p.philhealth)], ["YAKAP Member", yn(p.yakap)],
+                ])}
+                ${infoGroup("Health & Visit Reason", [
+                  ["Allergy Status", alerts.allergyStatus === "none" ? "No known allergies" : alerts.allergyStatus === "known" ? "Known allergy" : "Not yet assessed"],
+                  ["Known Allergies", alerts.allergies], ["Current Medications", alerts.currentMedications],
+                  ["Chief Complaint", p.complaint],
+                ])}
+                ${infoGroup("Clinic & Registration", [
+                  ["Clinic Room", DB.clinics.label(p.clinicId)],
+                  ["Registration Date / Time", fmtDateTime(p.registeredAt)],
+                  ["Consultation Fee", fmtMoney(p.fee)],
+                ])}
+              </div>
+            </div>
+            <div class="ab-box">
+              <div class="ab-box-title"><span class="ab-num">2</span> Vital Signs</div>
+              ${vitals ? `<div class="ab-vitals">${vitals}</div>` : `<div class="ab-empty">No vital signs recorded.</div>`}
+            </div>
+          </div>
+
+          <div class="ab-box ab-consult" style="margin-top:13px">
+            <div class="ab-box-title"><span class="ab-num">3</span> Consultation Summary</div>
+            ${row("Chief Complaint", p.complaint)}
+            ${row("Allergy Status", alerts.allergyStatus === "none" ? "No known allergies" : alerts.allergyStatus === "known" ? "Known allergy" : "Not assessed")}
+            ${row("Known Allergies", alerts.allergies)}
+            ${row("Current Medications", alerts.currentMedications)}
+            ${c && (c.diagnosis || c.symptoms) ? `
+              ${row("Symptoms", c.symptoms)}
+              ${row("Diagnosis", c.diagnosis)}
+              ${row("Treatment", c.treatment)}
+              ${row("Prescription", c.prescription)}
+              ${row("Notes", c.notes)}
+            ` : `<div class="ab-empty">No consultation record yet.</div>`}
+          </div>
+
+          <div class="ab-sign-grid">
+            <div class="ab-sign">
+              <div class="sig-space"></div>
+              <div class="sig-rule"></div>
+              <div class="sig-name">${App.esc(c.doctor || session.name || "—")}</div>
+              <div class="sig-role">Attending Physician${c.date ? " • " + fmtDate(c.date) : ""}</div>
+            </div>
+            <div class="ab-sign">
+              <div class="sig-space"></div>
+              <div class="sig-rule"></div>
+              <div class="sig-name">${App.esc(p.fullName)}</div>
+              <div class="sig-role">Patient</div>
+            </div>
+          </div>
+
+          <div class="ab-foot">
+            <div class="ab-conf">Confidential — for authorized medical personnel only</div>
+            <div class="ab-meta">Generated ${issued.toLocaleString("en-PH")} • Rever Medical Center, Inc. — Clinic Information System • Form RMCI-MA-01</div>
+          </div>
+        </div>`;
+    }
+
+    /* ---------- FULL PATIENT RECORD (doctor print) ---------- */
+    function buildRecord(p) {
+      const c = p.consultation || {};
+      const v = p.vitals || {};
+      const d = p.details || p.demographics || {};
+      const alerts = p.medicalAlerts || {};
+      const em = p.emergency || {};
+      const row = (label, val) => `<div class="ab-row"><div class="ab-label">${label}</div><div class="ab-value">${App.esc(val == null || val === "" ? "—" : val)}</div></div>`;
+      const yn = (val) => (val ? "Yes" : "No");
+      const vital = (label, val, unit) => val
+        ? `<div class="ab-vital"><span class="v-l">${label}</span><span class="v-v">${App.esc(val)}<span class="v-u"> ${unit}</span></span></div>`
+        : "";
+      const vitals = [
+        vital("BP", v.bp, "mmHg"), vital("Temp", v.temp, "°C"), vital("HR", v.hr, "bpm"),
+        vital("RR", v.rr, "/min"), vital("Weight", v.weight, "kg"), vital("Height", v.height, "cm"),
+        vital("SpO2", v.spo2, "%"),
+      ].join("");
+      const clinicPhone = DB.clinics.phone(p.clinicId);
+      return `
+        <div class="ab-sheet">
+          <div class="ab-head">
+            <img class="ab-logo" src="../assets/images/rmci-logo.jpg" alt="Rever Medical Center" />
+            <div class="ab-head-txt">
+              <div class="ab-org">Rever Medical Center, Inc.</div>
+              <div class="ab-contact">${clinicPhone ? "Tel. " + App.esc(clinicPhone) + " • " : ""}Official Health Record</div>
+            </div>
+            <div class="ab-doc">
+              <div class="d-l">Date Issued</div>
+              <div class="d-v">${fmtDate(new Date().toISOString())}</div>
+            </div>
+          </div>
+          <div class="ab-titlebar"><span class="ab-title">COMPLETE PATIENT RECORD</span></div>
+          <div class="ab-strip">
+            <span class="s-name">${App.esc(p.fullName)}</span>
+            <span class="s-meta">ID ${App.esc(p.id)}</span>
+            <span class="s-meta">${p.age != null ? p.age + " yrs" : "—"} • ${App.esc(p.gender || "—")}</span>
+            <span class="s-meta">${App.esc(DB.clinics.label(p.clinicId))}</span>
+          </div>
+          <div class="ab-grid">
+            <div class="ab-box">
+              <div class="ab-box-title"><span class="ab-num">1</span> Patient Information</div>
+              ${row("Patient ID", p.id)}
+              ${row("Full Name", p.fullName)}
+              ${row("Age / Gender", (p.age != null ? p.age + " yrs" : "—") + " / " + (p.gender || "—"))}
+              ${row("Birthdate", fmtDate(p.birthdate))}
+              ${row("Birthplace", d.birthplace)}
+              ${row("Nationality", d.nationality)}
+              ${row("Religion", d.religion)}
+              ${row("Marital Status", d.maritalStatus)}
+              ${row("Occupation", d.occupation)}
+              ${row("Company", d.companyName)}
+              ${row("Contact", p.contact)}
+              ${row("Address", p.address)}
+              ${row("Allergy Status", alerts.allergyStatus === "none" ? "No known allergies" : alerts.allergyStatus === "known" ? "Known allergy" : "Not assessed")}
+              ${row("Known Allergies", alerts.allergies)}
+              ${row("Current Medications", alerts.currentMedications)}
+              ${row("Clinic Room", DB.clinics.label(p.clinicId))}
+              ${row("Registered By", DB.users.name(p.registeredBy))}
+              ${row("Registered", fmtDateTime(p.registeredAt))}
+            </div>
+            <div>
+              <div class="ab-box">
+                <div class="ab-box-title"><span class="ab-num">2</span> Vital Signs</div>
+                ${vitals ? `<div class="ab-vitals">${vitals}</div>` : `<div class="ab-empty">No vital signs recorded.</div>`}
+              </div>
+              <div class="ab-box" style="margin-top:10px">
+                <div class="ab-box-title"><span class="ab-num">3</span> Coverage</div>
+                ${row("Employed", yn(p.employed))}
+                ${row("HMO Member", yn(p.hmo))}
+                ${row("PhilHealth", yn(p.philhealth))}
+                ${row("YAKAP", yn(p.yakap))}
+              </div>
+              ${(em.name || em.contact || em.relationship || em.address) ? `
+              <div class="ab-box" style="margin-top:10px">
+                <div class="ab-box-title"><span class="ab-num">4</span> Emergency Contact</div>
+                ${row("Name", em.name)}
+                ${row("Relationship", em.relationship)}
+                ${row("Contact", em.contact)}
+                ${row("Address", em.address)}
+              </div>` : ""}
+            </div>
+          </div>
+
+          <div class="ab-box ab-consult" style="margin-top:13px">
+            <div class="ab-box-title"><span class="ab-num">5</span> Consultation</div>
+            ${row("Chief Complaint", p.complaint)}
+            ${c && (c.diagnosis || c.symptoms) ? `
+              ${row("Symptoms", c.symptoms)}
+              ${row("Diagnosis", c.diagnosis)}
+              ${row("Treatment", c.treatment)}
+              ${row("Prescription", c.prescription)}
+              ${row("Notes", c.notes)}
+            ` : `<div class="ab-empty">No consultation record yet.</div>`}
+            <div class="ab-sign-grid">
+              <div class="ab-sign">
+                <div class="sig-space"></div>
+                <div class="sig-rule"></div>
+                <div class="sig-name">${App.esc(c.doctor || session.name || "—")}</div>
+                <div class="sig-role">Attending Physician${c.date ? " • " + fmtDate(c.date) : ""}</div>
+              </div>
+              <div class="ab-sign">
+                <div class="sig-space"></div>
+                <div class="sig-rule"></div>
+                <div class="sig-name">${App.esc(p.fullName)}</div>
+                <div class="sig-role">Patient</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ab-foot">
+            <div class="ab-conf">Confidential — for authorized medical personnel only</div>
+            <div class="ab-meta">Generated ${new Date().toLocaleString("en-PH")} • Rever Medical Center, Inc. — Clinic Information System • Form RMCI-PR-01</div>
+          </div>
+        </div>`;
+    }
+
+    /* ---------- PRESCRIPTION / RECETA (doctor print) ---------- */
+    function buildReceta(p) {
+      const c = p.consultation || {};
+      return `
+        <div class="rx-sheet">
+          <div class="rx-head">
+            <img class="rx-logo" src="../assets/images/rmci-logo.jpg" alt="Rever Medical Center" />
+            <div class="rx-head-txt">
+              <div class="rx-org">Rever Medical Center, Inc.</div>
+              <div class="rx-clinic">${App.esc(DB.clinics.label(p.clinicId))}</div>
+            </div>
+            <div class="rx-rx">℞</div>
+          </div>
+          <div class="rx-meta">
+            <div><span class="rx-lbl">Patient</span><strong>${App.esc(p.fullName)}</strong></div>
+            <div><span class="rx-lbl">Age</span>${p.age != null ? p.age + " yrs" : "—"}</div>
+            <div><span class="rx-lbl">Date</span>${fmtDate(c.date || new Date().toISOString())}</div>
+          </div>
+          <div class="rx-body">
+            <div class="rx-lbl">Prescription (Receta)</div>
+            <div class="rx-meds">${App.esc(c.prescription || "—")}</div>
+          </div>
+          <div class="rx-sign">
+            <div class="rx-line"></div>
+            <div class="rx-doc">${App.esc(c.doctor || session.name)}</div>
+            <div class="rx-lic">Attending Physician</div>
+          </div>
+          <div class="rx-foot">Valid only with the attending physician's signature • Rever Medical Center, Inc. — Clinic Information System</div>
+        </div>`;
+    }
+
+    function openAbstract(id) {
+      if (session.role !== "doctor") { App.toast("🔒", "Medical Abstract is for doctors only."); return; }
+      const p = DB.patients.find(id);
+      const body = document.getElementById("abstractBody");
+      if (p && body) body.innerHTML = buildAbstract(p);
+      App.openModal("abstractModal");
+    }
+
+    function printAbstract(id) {
+      if (session.role !== "doctor") { App.toast("🔒", "Medical Abstract is for doctors only."); return; }
+      const p = DB.patients.find(id);
+      if (p) App.printSheet(buildAbstract(p));
+    }
+
+    function printRecord(id) {
+      if (session.role !== "doctor") { App.toast("🔒", "Patient record printing is for doctors only."); return; }
+      const p = DB.patients.find(id);
+      if (p) App.printSheet(buildRecord(p));
+    }
+
+    function printReceta(id) {
+      if (session.role !== "doctor") { App.toast("🔒", "Prescription printing is for doctors only."); return; }
+      const p = DB.patients.find(id);
+      if (p) App.printSheet(buildReceta(p));
+    }
+
+    function consultationView(p) {
+      const c = p.consultation;
+      if (!c) return `<div class="text-muted text-sm">⏳ Wala pang consultation record.</div>`;
+      const block = (label, val) => `
+        <div class="info-row" style="margin-bottom:14px;">
+          <div class="ir-label">${label}</div>
+          <div class="ir-value" style="white-space:pre-wrap;">${App.esc(val || "—")}</div>
+        </div>`;
+      return block("⚕️ Symptoms", c.symptoms) + block("🔍 Diagnosis", c.diagnosis) +
+        block("💊 Treatment", c.treatment) + block("📝 Prescription", c.prescription) +
+        block("🗒️ Consultation Notes", c.notes) +
+        `<div class="text-sm text-muted mt-10">— ${App.esc(c.doctor || "")} • ${fmtDateTime(c.date)}</div>`;
+    }
+
+    /* ---------- SECRETARY: intake + vitals ---------- */
+    function secretaryStartPanel(p) {
+      return `<div class="card">
+        <div class="card-head"><h3>Patient Handoff</h3>${App.statusBadge(p.status)}</div>
+        <div class="card-pad">
+          <p class="text-sm mb-16">Kolektahin ang dahilan ng pagbisita at medical history habang sinisimulan ang patient intake.</p>
+          <button class="btn btn-primary" onclick="startIntake('${p.id}')">Start Intake &amp; Medical History →</button>
+        </div>
+      </div>`;
+    }
+
+    function allergySummary(alerts) {
+      if (!alerts || alerts.allergyStatus === "unknown") return "Not yet assessed";
+      if (alerts.allergyStatus === "none") return "No known allergies";
+      return alerts.allergies || "Known allergy — details not provided";
+    }
+
+    function startIntake(id) {
+      const p = DB.patients.find(id);
+      if (!p || session.role !== "secretary" || p.status !== STATUS.TRANSFERRED) {
+        App.toast("⚠️", "Hindi na available ang patient para simulan ang intake.");
+        return;
+      }
+      p.status = STATUS.WITH_SECRETARY;
+      p.intakeStartedAt = new Date().toISOString();
+      p.assignedSecretary = session.userId;
+      DB.patients.save(p);
+      location.reload();
+    }
+
+    /* ---------- Presentation: pre-fill intake forms on open ---------- */
+    function prefillDemoForms(p) {
+      const setIfEmpty = (id, val) => {
+        const el = document.getElementById(id);
+        if (el && !el.value) el.value = val;
+      };
+
+      // SECRETARY — Record Vital Signs (only for a fresh intake, when no vitals yet)
+      if (session.role === "secretary" && p.status === STATUS.WITH_SECRETARY && !p.vitals) {
+        const alerts = p.medicalAlerts || {};
+        setIfEmpty("intakeAllergyStatus", alerts.allergyStatus || "unknown");
+        setIfEmpty("intakeAllergies", alerts.allergies || "");
+        setIfEmpty("intakeCurrentMedications", alerts.currentMedications || "");
+        setIfEmpty("intakeComplaint", p.complaint || "");
+        setIfEmpty("v_bp", "120/80");
+        setIfEmpty("v_temp", "37.8");
+        setIfEmpty("v_hr", "88");
+        setIfEmpty("v_rr", "20");
+        setIfEmpty("v_weight", "70");
+        setIfEmpty("v_height", "168");
+        setIfEmpty("v_spo2", "97");
+        const triage = document.getElementById("triagePriority");
+        if (triage) triage.value = "routine";
+        const docSel = document.getElementById("assignedDoctor");
+        if (docSel && !docSel.value) {
+          const firstDoc = docSel.querySelector('option[value]:not([value=""])');
+          if (firstDoc) docSel.value = firstDoc.value;
+        }
+      }
+
+      // DOCTOR — Consultation form (status = waiting_doctor)
+      if (session.role === "doctor" && p.status === STATUS.WAITING_DOCTOR) {
+        setIfEmpty("c_symptoms", "Ubo at lagnat sa loob ng 3 araw, may pananakit ng lalamunan.");
+        setIfEmpty("c_diagnosis", "Acute upper respiratory tract infection");
+        setIfEmpty("c_treatment", "Pahinga, maraming tubig, at symptomatic medication para sa lagnat at ubo.");
+        setIfEmpty("c_prescription", "Paracetamol 500mg every 8 hours PRN; Cetirizine 10mg HS");
+        setIfEmpty("c_notes", "Balik kung hindi bumuti ang kondisyon pagkatapos ng 3 araw. Iwasan ang malamig na inumin.");
+      }
+    }
+
+    function secretaryPanel(p) {
+      const doctors = DB.users.byRole("doctor").filter((u) => u.clinicId === p.clinicId);
+      const doctorOptions = doctors.map((doctor) => `<option value="${doctor.id}" ${p.assignedDoctor === doctor.id ? "selected" : ""}>${App.esc(doctor.name)}</option>`).join("");
+      return `<div class="card">
+        <div class="card-head"><h3>⚕️ Patient Intake &amp; Vital Signs</h3><span class="badge badge-warning">In progress</span></div>
+        <div class="card-pad">
+          <form onsubmit="return saveVitals(event, '${p.id}')">
+            <div class="section-title">Allergies &amp; Current Medication</div>
+            <div class="form-grid mb-20">
+              <div class="field">
+                <label>Allergy Status <span class="req">*</span></label>
+                <select class="select" id="intakeAllergyStatus" required>
+                  <option value="unknown" ${(p.medicalAlerts || {}).allergyStatus === "unknown" || !(p.medicalAlerts || {}).allergyStatus ? "selected" : ""}>Not yet assessed</option>
+                  <option value="none" ${(p.medicalAlerts || {}).allergyStatus === "none" ? "selected" : ""}>No known allergies</option>
+                  <option value="known" ${(p.medicalAlerts || {}).allergyStatus === "known" ? "selected" : ""}>Known allergy</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Known Allergies</label>
+                <input class="input" id="intakeAllergies" value="${App.esc((p.medicalAlerts || {}).allergies || "")}" placeholder="List allergy and reaction, if known" />
+              </div>
+              <div class="field full">
+                <label>Current Medications</label>
+                <textarea class="textarea" id="intakeCurrentMedications" placeholder="Medication name, dose, and frequency (if known)">${App.esc((p.medicalAlerts || {}).currentMedications || "")}</textarea>
+              </div>
+              <div class="field full">
+                <label>Chief Complaint / Reason for Visit <span class="req">*</span></label>
+                <textarea class="textarea" id="intakeComplaint" placeholder="Ano ang dahilan ng pagpunta o pangunahing nararamdaman?" required>${App.esc(p.complaint || "")}</textarea>
+                <div class="text-sm text-muted mt-10">Ilagay ang dahilan ng visit para may malinaw na maipasa sa doctor.</div>
+              </div>
+            </div>
+            <div class="section-title">Record Vital Signs</div>
+            <div class="vitals-grid mb-20">
+              ${vitalInput("bp", "Blood Pressure", "mmHg", p.vitals && p.vitals.bp, true)}
+              ${vitalInput("temp", "Temperature", "°C", p.vitals && p.vitals.temp, true)}
+              ${vitalInput("hr", "Heart Rate", "bpm", p.vitals && p.vitals.hr, true)}
+              ${vitalInput("rr", "Resp. Rate", "/min", p.vitals && p.vitals.rr, true)}
+              ${vitalInput("weight", "Weight", "kg", p.vitals && p.vitals.weight)}
+              ${vitalInput("height", "Height", "cm", p.vitals && p.vitals.height)}
+              ${vitalInput("spo2", "SpO2", "%", p.vitals && p.vitals.spo2, true)}
+            </div>
+            <div class="form-grid mb-20">
+              <div class="field">
+                <label>Triage Priority</label>
+                <select class="select" id="triagePriority">
+                  <option value="routine" ${p.triagePriority === "urgent" || p.triagePriority === "emergency" ? "" : "selected"}>Routine</option>
+                  <option value="urgent" ${p.triagePriority === "urgent" ? "selected" : ""}>Urgent</option>
+                  <option value="emergency" ${p.triagePriority === "emergency" ? "selected" : ""}>Emergency</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Assign Doctor <span class="req">*</span></label>
+                <select class="select" id="assignedDoctor" required>
+                  <option value="">Select doctor...</option>${doctorOptions}
+                </select>
+              </div>
+            </div>
+            <div class="text-sm text-muted mb-16">Kailangan ang BP, temperature, heart rate, respiratory rate, at SpO2 bago i-send. Height at weight ay maaaring idagdag kung nakuha.</div>
+            <div class="divider"></div>
+            <div class="flex-between" style="flex-wrap:wrap;gap:10px;">
+              <div class="text-sm text-muted">✅ Pag na-save, ipapadala sa doctor ang pasyente.</div>
+              <button type="submit" class="btn btn-primary btn-lg">Save &amp; Send to Doctor →</button>
+            </div>
+          </form>
+        </div>
+      </div>`;
+    }
+
+    function vitalInput(name, label, unit, value, required) {
+      const isBp = name === "bp";
+      const bounds = { temp: "min=\"25\" max=\"45\" step=\"0.1\"", hr: "min=\"20\" max=\"250\"", rr: "min=\"5\" max=\"80\"", spo2: "min=\"50\" max=\"100\"", weight: "min=\"0\" step=\"0.1\"", height: "min=\"0\" step=\"0.1\"" };
+      return `<div class="vital-box">
+        <div class="v-label">${label}</div>
+        <input type="${isBp ? "text" : "number"}" id="v_${name}" placeholder="${isBp ? "120/80" : "—"}" value="${App.esc(value || "")}" ${isBp ? 'pattern="\\d{2,3}/\\d{2,3}" title="Ilagay bilang 120/80"' : (bounds[name] || "")} ${required ? "required" : ""} />
+        <div class="v-unit">${unit}</div>
+      </div>`;
+    }
+
+    function saveVitals(e, id) {
+      e.preventDefault();
+      const p = DB.patients.find(id);
+      if (!p || session.role !== "secretary" || p.status !== STATUS.WITH_SECRETARY) {
+        App.toast("⚠️", "Hindi na available ang patient para sa intake.");
+        return false;
+      }
+      const val = (n) => document.getElementById("v_" + n).value.trim();
+      const complaint = document.getElementById("intakeComplaint").value.trim();
+      if (!complaint) {
+        App.toast("⚠️", "Ilagay ang chief complaint bago i-send sa doctor.");
+        return false;
+      }
+      const bp = val("bp");
+      if (!/^\d{2,3}\/\d{2,3}$/.test(bp)) {
+        App.toast("⚠️", "Suriin ang blood pressure format. Halimbawa: 120/80.");
+        return false;
+      }
+      const vitalLimits = { temp: [25, 45], hr: [20, 250], rr: [5, 80], spo2: [50, 100] };
+      for (const name in vitalLimits) {
+        const number = Number(val(name));
+        const limits = vitalLimits[name];
+        if (!Number.isFinite(number) || number < limits[0] || number > limits[1]) {
+          App.toast("⚠️", `Suriin ang ${name.toUpperCase()} value bago i-send.`);
+          return false;
+        }
+      }
+      const assignedDoctor = document.getElementById("assignedDoctor").value;
+      if (!assignedDoctor) {
+        App.toast("⚠️", "Pumili ng doctor bago ipadala ang patient.");
+        return false;
+      }
+      p.vitals = {
+        bp, temp: val("temp"), hr: val("hr"), rr: val("rr"),
+        weight: val("weight"), height: val("height"), spo2: val("spo2"),
+      };
+      p.complaint = complaint;
+      p.medicalAlerts = {
+        allergyStatus: document.getElementById("intakeAllergyStatus").value,
+        allergies: document.getElementById("intakeAllergies").value.trim(),
+        currentMedications: document.getElementById("intakeCurrentMedications").value.trim(),
+      };
+      p.status = STATUS.WAITING_DOCTOR;
+      p.assignedSecretary = session.userId;
+      p.assignedDoctor = assignedDoctor;
+      p.triagePriority = document.getElementById("triagePriority").value;
+      p.sentToDoctorAt = new Date().toISOString();
+      DB.patients.save(p);
+      App.toast("✅", `Vitals saved. ${p.fullName} sent to doctor!`);
+      setTimeout(() => { location.reload(); }, 900);
+      return false;
+    }
+
+    /* ---------- DOCTOR: consultation ---------- */
+    function doctorPanel(p) {
+      const alerts = p.medicalAlerts || {};
+      const priority = p.triagePriority || "routine";
+      const triageBadge = priority === "emergency" ? `<span class="badge badge-danger">Emergency priority</span>`
+        : priority === "urgent" ? `<span class="badge badge-warning">Urgent priority</span>` : "";
+      return `<div class="card">
+        <div class="card-head"><h3>⚕️ Consultation &amp; Medical History</h3><div class="flex-center gap-6">${triageBadge}<span class="badge badge-purple">Ready</span></div></div>
+        <div class="card-pad">
+          <div class="info-grid mb-16">
+            <div class="info-row"><div class="ir-label">Chief Complaint</div><div class="ir-value">${App.esc(p.complaint || "Not provided")}</div></div>
+            <div class="info-row"><div class="ir-label">Allergy Status</div><div class="ir-value">${App.esc(allergySummary(alerts))}</div></div>
+            <div class="info-row"><div class="ir-label">Current Medications</div><div class="ir-value">${App.esc(alerts.currentMedications || "None reported")}</div></div>
+          </div>
+          ${p.vitals ? `<div class="text-sm text-muted mb-16">Vitals: BP ${App.esc(p.vitals.bp || "—")} • Temp ${App.esc(p.vitals.temp || "—")}°C • HR ${App.esc(p.vitals.hr || "—")} • SpO2 ${App.esc(p.vitals.spo2 || "—")}%</div>` : ""}
+          <form onsubmit="return saveConsultation(event, '${p.id}')">
+            <div class="field">
+              <label>Symptoms <span class="req">*</span></label>
+              <textarea class="textarea" id="c_symptoms" placeholder="Ano ang nararamdaman ng pasyente?" required></textarea>
+            </div>
+            <div class="field">
+              <label>Diagnosis <span class="req">*</span></label>
+              <input class="input" id="c_diagnosis" placeholder="Hal. Hypertension stage 1" required />
+            </div>
+            <div class="field">
+              <label>Treatment <span class="req">*</span></label>
+              <textarea class="textarea" id="c_treatment" placeholder="Ano ang gagawing paggamot?" required></textarea>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label>Prescription</label>
+                <input class="input" id="c_prescription" placeholder="Hal. Amlodipine 5mg" />
+              </div>
+              <div class="field">
+                <label>Consultation Fee</label>
+                <input class="input" id="c_fee" type="number" min="0" value="${p.fee || 500}" />
+              </div>
+            </div>
+            <div class="field">
+              <label>Consultation Notes</label>
+              <textarea class="textarea" id="c_notes" placeholder="Karagdagang notes para sa pasyente..."></textarea>
+            </div>
+            <div class="divider"></div>
+            <div class="flex-between" style="flex-wrap:wrap;gap:10px;">
+              <div class="text-sm text-muted">✅ Pag na-save, makukumpleto ang record ng pasyente.</div>
+              <button type="submit" class="btn btn-success btn-lg">Complete Consultation ✓</button>
+            </div>
+          </form>
+        </div>
+      </div>`;
+    }
+
+    function saveConsultation(e, id) {
+      e.preventDefault();
+      const p = DB.patients.find(id);
+      if (!p || session.role !== "doctor" || p.status !== STATUS.WAITING_DOCTOR
+        || (p.assignedDoctor && p.assignedDoctor !== session.userId)) {
+        App.toast("⚠️", "Hindi na available ang patient para sa consultation na ito.");
+        return false;
+      }
+      const val = (n) => document.getElementById(n).value.trim();
+      if (!val("c_symptoms") || !val("c_diagnosis") || !val("c_treatment")) {
+        App.toast("⚠️", "Kumpletuhin ang symptoms, diagnosis, at treatment bago i-complete.");
+        return false;
+      }
+      p.consultation = {
+        symptoms: val("c_symptoms"),
+        diagnosis: val("c_diagnosis"),
+        treatment: val("c_treatment"),
+        prescription: val("c_prescription"),
+        notes: val("c_notes"),
+        doctor: session.name,
+        date: new Date().toISOString(),
+      };
+      p.fee = Number(val("c_fee")) || p.fee || 0;
+      p.assignedDoctor = session.userId;
+      p.status = STATUS.COMPLETED;
+      p.completedAt = new Date().toISOString();
+      DB.patients.save(p);
+      App.toast("✅", `Consultation completed for ${p.fullName}!`);
+      setTimeout(() => { location.reload(); }, 900);
+      return false;
+    }
+  </script>
+</body>
+</html>

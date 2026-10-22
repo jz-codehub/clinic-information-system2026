@@ -1,0 +1,5 @@
+len=38726
+idx=2701
+seg="-flex; align-items: center; gap: 4px; }\r\n    .zoom-grp .chip-btn { padding: 7px 10px; }\r\n    #zoomLbl { font-size: 12px; font-weight: 700; color: #0f766e; min-width: 44px; text-align: center; }\r\n    .st-label { font-size: 12.5px; font-weight: 600; color: #334155; display: inline-flex; align-items: center; gap: 6px; }\r\n    .st-label select { font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--border,#e2e8f0); border-radius: 9px; background: #fff; font-weight: 600; color: #334155; }\r\n    .gm-subtoolbar select { font-size: 12px; padding: 6px 7px; border: 1px solid var(--border,#e2e8f0); "
+hasBackslashQuote=false
+hasCRLF=true

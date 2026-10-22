@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Clinic — Rever Medical Center, Inc.</title>
+  <link rel="icon" href="../assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script src="../assets/js/rmci-logo-data.js"></script>
+  <script src="../assets/js/schedules.js"></script>
+  <script>
+    const session = requireAuth(["secretary", "superadmin"]); // only clinic staff edit schedules
+
+    /* Secretary edits only their assigned specialty. superadmin = IM demo scope. */
+    const MY_SPECIALTY = (session && session.specialty) || "Internal Medicine";
+    let openDoctor = null;
+
+    if (session) {
+      renderLayout({
+        page: "myclinic.html",
+        title: "My Clinic — " + MY_SPECIALTY,
+        subtitle: `I-edit ang schedule ng mga ${App.esc(MY_SPECIALTY)} doctors. Ang mga pagbabago agad na lumilitaw sa <a href="schedules.html">Doctor Schedules</a>.`,
+        actions: `<button class="btn btn-outline btn-sm" onclick="printToday()" title="Print today's schedule">🖨️ Today</button>
+          <button class="btn btn-outline btn-sm" onclick="printWeek()" title="Print the full week">🖨️ Week</button>
+          <button class="btn btn-outline btn-sm" onclick="downloadTodayImage()" title="Download today's clinic schedule as a PNG image">⬇️ Today image</button>
+          <button class="btn btn-outline btn-sm" onclick="downloadWeekImage()" title="Download this clinic's weekly schedule as a PNG image">⬇️ Week image</button>`,
+        content: buildMyClinic(),
+      });
+      setTimeout(wireMyClinic, 0);
+    }
+
+    /* ---------- PRINT (this clinic only) ---------- */
+    function specialtyFilter() {
+      return (s) => (s.s || "").toLowerCase() === MY_SPECIALTY.toLowerCase();
+    }
+    function printToday() {
+      const day = SCHED.today();
+      schedPrint(schedPrintDoc(MY_SPECIALTY + " Schedule — " + day, "Availability for " + day, [day], specialtyFilter()));
+    }
+    function printWeek() {
+      schedPrint(schedPrintDoc(MY_SPECIALTY + " Schedule — This Week", "Monday to Sunday availability", SCHED.days(), specialtyFilter()));
+    }
+    function downloadTodayImage() {
+      const day = SCHED.today();
+      schedDownloadImage(MY_SPECIALTY + " Schedule — " + day, "Availability for " + day, [day], specialtyFilter(), "clinic-schedule-" + day.toLowerCase() + ".png");
+    }
+    function downloadWeekImage() {
+      schedDownloadImage(MY_SPECIALTY + " Schedule — This Week", "Monday to Sunday availability", SCHED.days(), specialtyFilter(), "clinic-schedule-week.png");
+    }
+
+    function myDoctors() {
+      return SCHED.doctors((d) => (d.s || "").toLowerCase() === MY_SPECIALTY.toLowerCase());
+    }
+
+    function buildMyClinic() {
+      return `<div id="myHost"></div>`;
+    }
+
+    function clinicStats() {
+      const docs = myDoctors();
+      const avail = docs.filter((d) => d.st === "available").length;
+      const leave = docs.filter((d) => d.st === "leave").length;
+      const unavail = docs.filter((d) => d.st === "unavailable").length;
+      return `
+        <div class="grid grid-4 mb-20">
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">My Doctors</div><div class="stat-value">${docs.length}</div></div><div class="stat-ico ico-teal">⚕️</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Available</div><div class="stat-value">${avail}</div></div><div class="stat-ico ico-green">✅</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Unavailable</div><div class="stat-value">${unavail}</div></div><div class="stat-ico ico-blue">⛔</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">On Leave</div><div class="stat-value">${leave}</div></div><div class="stat-ico ico-amber">${ICON_LEAVE}</div></div></div>
+        </div>`;
+    }
+
+    function statusSelect(name, st) {
+      const opts = ["available", "unavailable", "leave"]
+        .map((k) => `<option value="${k}" ${st === k ? "selected" : ""}>${schedStatusLabel(k)}</option>`).join("");
+      return `<select class="input" style="max-width:150px;padding:6px 10px;" onchange="setStatus('${name.replace(/'/g, "\\'")}', this.value)">${opts}</select>`;
+    }
+
+    function cssId(n) { return n.replace(/[^a-zA-Z0-9]/g, ""); }
+
+    function slotRows(d) {
+      const slots = d.slots.slice().sort((a, b) => SCHED.days().indexOf(a.day) - SCHED.days().indexOf(b.day) || schedByTime(a, b));
+      if (!slots.length) return `<tr><td colspan="5" class="cell-muted" style="text-align:center;">Walang nakatakdang slot pa.</td></tr>`;
+      return slots.map((s) => `
+        <tr>
+          <td style="white-space:nowrap;" class="fw-600">${s.day.slice(0, 3).toUpperCase()}</td>
+          <td style="white-space:nowrap;">${App.esc(s.t)} ${schedPartTag(s.t)}</td>
+          <td>${schedSpecPill(d.s)}</td>
+          <td>${schedStatusBadge(s.st)}</td>
+          <td><button class="btn btn-sm btn-outline" title="Remove slot" onclick="removeSlot('${s.id}')">🗑️</button></td>
+        </tr>`).join("");
+    }
+
+    /* Always-visible compact day+time summary (no need to click Edit). */
+    function slotSummary(d) {
+      const slots = d.slots.slice().sort((a, b) => SCHED.days().indexOf(a.day) - SCHED.days().indexOf(b.day) || schedByTime(a, b));
+      if (!slots.length) return `<div class="slot-summary"><span class="ss-empty">Walang nakatakdang slot pa.</span></div>`;
+      return `<div class="slot-summary">${slots.map((s) => `
+        <span class="ss-chip">
+          <span class="ss-day">${s.day.slice(0, 3).toUpperCase()}</span>
+          <span class="ss-time">${App.esc(s.t)}</span>
+          ${schedPartTag(s.t)}
+        </span>`).join("")}
+      </div>`;
+    }
+
+    function doctorCard(d) {
+      const isOpen = openDoctor === d.n;
+      const secCount = schedSecretariesFor(d.s);
+      const editor = SCHED.lastEditor(d.n);
+      const shortName = schedShortName(d.n);
+      return `
+        <div class="card mb-20">
+          <div class="card-head" style="flex-wrap:wrap;gap:12px;">
+            <div class="cell-user">
+              <div class="avatar">${initials(d.n)}</div>
+              <div>
+                <div class="cu-name">${App.esc(shortName)}</div>
+                <div class="cu-sub">${schedSpecPill(d.s)} <span class="ss-slots">${d.slots.length} slot${d.slots.length === 1 ? "" : "s"}/week</span></div>
+                <div class="cu-meta">👥 ${secCount} secretary${secCount === 1 ? "" : "ies"} assigned${editor ? ` • ✏️ Last edited by ${App.esc(editor.by)}` : ""}</div>
+              </div>
+            </div>
+            <div class="flex-center gap-6">
+              <button class="btn btn-sm ${isOpen ? "btn-primary" : "btn-outline"}" onclick="toggleDoc('${d.n.replace(/'/g, "\\'")}')">${isOpen ? "Close" : "Edit"}</button>
+            </div>
+          </div>
+          ${slotSummary(d)}
+          ${isOpen ? `
+          <div class="table-wrap">
+            <table class="tbl">
+              <thead><tr><th>Day</th><th>Time</th><th>Specialty</th><th>Status</th><th></th></tr></thead>
+              <tbody>${slotRows(d)}</tbody>
+            </table>
+          </div>
+          <div style="padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <span class="text-sm text-muted" style="min-width:70px;">Status:</span>
+            ${statusSelect(d.n, d.st)}
+          </div>
+          <div style="padding:0 24px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <select class="input" id="af_day_${cssId(d.n)}" style="max-width:130px;padding:8px 10px;">
+              ${SCHED.days().map((day) => `<option value="${day}">${day}</option>`).join("")}
+            </select>
+            <input class="input" id="af_time_${cssId(d.n)}" placeholder="e.g. 9:00 AM - 12:00 PM" style="max-width:240px;padding:8px 10px;" />
+            <button class="btn btn-primary btn-sm" onclick="addFor('${d.n.replace(/'/g, "\\'")}')">＋ Add slot</button>
+          </div>` : ""}
+        </div>`;
+    }
+
+    function render() {
+      const docs = myDoctors();
+      document.getElementById("myHost").innerHTML = `
+        ${clinicStats()}
+        ${docs.length ? docs.map(doctorCard).join("")
+          : `<div class="card"><div class="cell-muted" style="text-align:center;padding:40px;">Walang ${App.esc(MY_SPECIALTY)} doctor sa roster.</div></div>`}
+        <div class="card">
+          <div class="card-pad">
+            <p class="text-sm text-muted">💡 <strong>Tip:</strong> Gamitin ang dropdown para markahan ang doctor bilang Available / Unavailable / On leave, o i-click ang <strong>Edit</strong> para magdagdag at mag-alis ng time slots. Ang <a href="schedules.html">Doctor Schedules</a> page ay nagre-refresh batay sa data na ito.</p>
+            <div class="flex-center gap-6" style="margin-top:12px;">
+              <button class="btn btn-outline btn-sm" onclick="resetClinic()">↺ Reset to seed roster</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function toggleDoc(name) { openDoctor = openDoctor === name ? null : name; render(); }
+
+    function setStatus(name, status) { SCHED.setStatus(name, status); render(); }
+
+    function removeSlot(id) { SCHED.removeSlot(id); render(); }
+
+    function addFor(name) {
+      const cid = cssId(name);
+      const day = document.getElementById("af_day_" + cid).value;
+      const time = document.getElementById("af_time_" + cid).value.trim();
+      if (!time) { App.toast("⚠️", "Ilagay muna ang time slot, hal. 9:00 AM - 12:00 PM"); return; }
+      SCHED.addSlot(name, MY_SPECIALTY, day, time, "available");
+      App.toast("✅", "Naidagdag ang slot sa " + day);
+      render();
+    }
+
+    async function resetClinic() {
+      const yes = await App.confirm({
+        icon: "🔄", title: "Reset roster",
+        message: "I-reset ang buong roster pabalik sa seed data? Mawawala ang mga edit mo.",
+        okLabel: "I-reset", cancelLabel: "Huwag", danger: true,
+      });
+      if (!yes) return;
+      SCHED.reset();
+      App.toast("🔄", "Roster reset to seed data");
+      render();
+    }
+
+    function wireMyClinic() { render(); }
+  </script>
+</body>
+</html>

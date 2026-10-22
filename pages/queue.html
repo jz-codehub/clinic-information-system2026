@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Queue — Rever Medical Center, Inc.</title>
+  <link rel="icon" href="../assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script>
+    const session = requireAuth(["secretary", "doctor"]);
+    if (session) {
+      const isSecretary = session.role === "secretary";
+      renderLayout({
+        page: "queue.html",
+        title: isSecretary ? "Clinic Intake Queue" : "Doctor Waiting Room",
+        subtitle: isSecretary
+          ? `${DB.clinics.name(session.clinicId)} • Mga pasyenteng naka-assign para sa intake at vital signs.`
+          : `${DB.clinics.name(session.clinicId)} • Mga pasyenteng naka-assign sa iyo o wala pang doctor assignment.`,
+        content: buildQueue(),
+      });
+    }
+
+    function buildQueue() {
+      const isSecretary = session.role === "secretary";
+      const clinicId = session.clinicId;
+      let list = DB.patients.byClinic(clinicId);
+
+      const priorityRank = (p) => p.triagePriority === "emergency" ? 0 : p.triagePriority === "urgent" ? 1 : 2;
+      const pending = list.filter((p) =>
+        isSecretary ? (p.status === STATUS.TRANSFERRED || p.status === STATUS.WITH_SECRETARY)
+                    : (p.status === STATUS.WAITING_DOCTOR && (!p.assignedDoctor || p.assignedDoctor === session.userId))
+      ).sort((a, b) =>
+        priorityRank(a) - priorityRank(b)
+        || new Date(a.registeredAt) - new Date(b.registeredAt)
+      );
+      const today = todayKey();
+      const done = list.filter((p) => p.status === STATUS.COMPLETED
+        && (p.consultation && p.consultation.date || "").slice(0, 10) === today);
+      const recentDone = list.filter((p) => p.status === STATUS.COMPLETED)
+        .sort((a, b) => new Date(b.consultation && b.consultation.date || 0) - new Date(a.consultation && a.consultation.date || 0))
+        .slice(0, 5);
+
+      const statLabel = isSecretary ? "Awaiting Intake" : "Waiting for Consultation";
+      const statIcon = isSecretary ? "🚶" : "⏳";
+      const statClass = isSecretary ? "ico-amber" : "ico-purple";
+
+      return `
+        <div class="grid grid-3 mb-20">
+          <div class="stat">
+            <div class="stat-top"><div><div class="stat-label">${statLabel}</div><div class="stat-value">${pending.length}</div></div>
+            <div class="stat-ico ${statClass}">${statIcon}</div></div>
+          </div>
+          <div class="stat">
+            <div class="stat-top"><div><div class="stat-label">Completed Today</div><div class="stat-value">${done.length}</div></div>
+            <div class="stat-ico ico-green">✓</div></div>
+          </div>
+          <div class="stat">
+            <div class="stat-top"><div><div class="stat-label">Total Clinic Patients</div><div class="stat-value">${list.length}</div></div>
+            <div class="stat-ico ico-teal">👥</div></div>
+          </div>
+        </div>
+
+        <div class="grid" style="grid-template-columns:1.6fr 1fr;align-items:start;">
+          <div class="card">
+            <div class="card-head"><h3>${isSecretary ? "Intake Queue" : "Consultation Queue"}</h3>
+              <span class="text-sm text-muted">${pending.length} pending</span></div>
+            <div class="card-pad">
+              <div class="queue-list">
+                ${pending.length ? pending.map((p, i) => queueCard(p, i + 1, isSecretary)).join("")
+                  : `<div class="empty"><div class="e-ico">${isSecretary ? "📋" : "🎉"}</div>
+                     <h4>Walang laman ang queue</h4>
+                     <p>${isSecretary ? "Kapag may na-transfer na patient o walk-in, lalabas dito." : "Walang pasyenteng naka-assign sa iyo ngayon."}</p></div>`}
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h3>Recently Completed</h3></div>
+            <div class="card-pad">
+              <div class="queue-list">
+                ${recentDone.length ? recentDone.map((p) => `
+                  <div class="queue-item">
+                    <div class="queue-num" style="background:var(--success-bg);color:#047857;">✓</div>
+                    <div class="queue-body">
+                      <div class="q-name">${App.esc(p.fullName)}</div>
+                      <div class="q-meta">${p.id} • ${App.esc(p.consultation ? p.consultation.diagnosis : "—")}</div>
+                    </div>
+                    <a href="patient-detail.html?id=${p.id}" class="btn btn-outline btn-sm">View</a>
+                  </div>`).join("")
+                  : `<div class="text-muted text-sm">Wala pang nakumpletong consult.</div>`}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function queueCard(p, num, isSecretary) {
+      const coverage = [];
+      if (p.employed) coverage.push("Employed");
+      if (p.hmo) coverage.push("HMO");
+      if (p.philhealth) coverage.push("PhilHealth");
+      if (p.yakap) coverage.push("YAKAP");
+
+      const priority = p.triagePriority || "routine";
+      const priorityBadge = priority === "emergency"
+        ? `<span class="badge badge-danger">Emergency</span>`
+        : priority === "urgent" ? `<span class="badge badge-warning">Urgent</span>` : "";
+      const doctor = p.assignedDoctor ? DB.users.name(p.assignedDoctor) : "Doctor not assigned";
+      return `<div class="queue-item">
+        <div class="queue-num">#${p.queueNumber || num}</div>
+        <div class="queue-body">
+          <div class="q-name">${App.esc(p.fullName)}</div>
+          <div class="q-meta">${p.id} • ${p.age} yrs • ${App.esc(p.gender || "")} • ${fmtDateTime(p.registeredAt)}${isSecretary ? "" : " • " + App.esc(doctor)}</div>
+          ${coverage.length ? `<div class="text-sm mt-10" style="color:var(--primary-dark);">🏷️ ${coverage.join(" · ")}</div>` : ""}
+          ${priorityBadge ? `<div class="mt-10">${priorityBadge}</div>` : ""}
+        </div>
+        <a href="patient-detail.html?id=${encodeURIComponent(p.id)}" class="btn btn-primary btn-sm">${isSecretary ? (p.status === STATUS.TRANSFERRED ? "Start Intake" : "Continue Intake") : "Start Consult"}</a>
+      </div>`;
+    }
+  </script>
+</body>
+</html>

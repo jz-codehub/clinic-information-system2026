@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patient Records — Rever Medical Center, Inc.</title>
+  <link rel="icon" href="../assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script>
+    const session = requireAuth();
+    let allPatients = [];
+    let activeFilter = "all";
+    let searchTerm = "";
+
+    if (session) {
+      allPatients = visiblePatients(session);
+      renderLayout({
+        page: "patients.html",
+        title: session.role === "regular" ? "My Patient Referrals" : "Patient Records",
+        subtitle: `<span id="resultCount" class="text-muted">—</span>`,
+        actions: (session.role === "regular"
+          ? `<a href="register-patient.html" class="btn btn-primary">➕ Register Patient</a>`
+          : session.role === "secretary" ? `<a href="register-patient.html" class="btn btn-primary">➕ Register Walk-in</a>` : "")
+          + `<button class="btn btn-outline btn-sm" onclick="clearAllRecords()" title="Clear all patient records (demo reset)">🗑️ Clear All Records</button>`,
+        content: buildPage(),
+      });
+      setTimeout(() => { wireSearch(); }, 0);
+    }
+
+    function visiblePatients(session) {
+      let list = DB.patients.all();
+      if (session.role === "regular") list = list.filter((p) => p.registeredBy === session.userId);
+      else if (session.clinicId) list = list.filter((p) => p.clinicId === session.clinicId);
+      return list.sort((a, b) => new Date(b.registeredAt) - new Date(a.registeredAt));
+    }
+
+    function buildPage() {
+      const tabs = buildTabs();
+      return `
+        <div class="card">
+          <div class="card-head" style="flex-wrap:wrap;gap:12px;">
+            <div class="flex-center gap-6" style="flex-wrap:wrap;" id="statusTabs">${tabs}</div>
+            <input class="input" id="searchInput" placeholder="🔍 Search name or ID..." style="max-width:240px;padding:8px 12px;" />
+          </div>
+          <div id="tableHost" class="table-wrap"></div>
+        </div>
+      `;
+    }
+
+    function buildTabs() {
+      const defs = [
+        { key: "all", label: "All" },
+        { key: STATUS.TRANSFERRED, label: "Awaiting Intake" },
+        { key: STATUS.WITH_SECRETARY, label: "Intake in Progress" },
+        { key: STATUS.WAITING_DOCTOR, label: "Waiting Doctor" },
+        { key: STATUS.COMPLETED, label: "Completed" },
+      ];
+      return defs.map((d) => {
+        const count = d.key === "all" ? allPatients.length : allPatients.filter((p) => p.status === d.key).length;
+        const active = activeFilter === d.key ? "active" : "";
+        return `<button class="btn btn-sm ${active ? "btn-primary" : "btn-outline"}" data-filter="${d.key}" onclick="setFilter('${d.key}')">${d.label} <span style="opacity:.7">${count}</span></button>`;
+      }).join("");
+    }
+
+    function setFilter(key) {
+      activeFilter = key;
+      document.getElementById("statusTabs").innerHTML = buildTabs();
+      renderTable();
+    }
+
+    function wireSearch() {
+      const input = document.getElementById("searchInput");
+      if (input) input.addEventListener("input", (e) => { searchTerm = e.target.value.toLowerCase(); renderTable(); });
+      renderTable();
+    }
+
+    function filtered() {
+      return allPatients.filter((p) => {
+        const okStatus = activeFilter === "all" || p.status === activeFilter;
+        const okSearch = !searchTerm || p.fullName.toLowerCase().includes(searchTerm) || String(p.id).toLowerCase().includes(searchTerm);
+        return okStatus && okSearch;
+      });
+    }
+
+    function renderTable() {
+      const list = filtered();
+      document.getElementById("resultCount").textContent = `${list.length} record${list.length === 1 ? "" : "s"} found`;
+      const host = document.getElementById("tableHost");
+
+      if (!list.length) {
+        host.innerHTML = `<div class="empty"><div class="e-ico">🔍</div><h4>Walang nahanap</h4><p>Subukan ang ibang filter o search term.</p></div>`;
+        return;
+      }
+
+      host.innerHTML = `<table class="tbl">
+        <thead><tr>
+          <th>Patient</th><th>Age / Gender</th><th>Clinic Room</th>
+          <th>Coverage</th><th>Status</th><th>Registered</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${list.map((p) => `
+            <tr>
+              <td><div class="cell-user"><div class="avatar">${initials(p.fullName)}</div>
+                <div><div class="cu-name">${App.esc(p.fullName)}</div><div class="cu-sub">${p.id}</div></div></div></td>
+              <td>${p.age} • ${App.esc(p.gender || "—")}</td>
+              <td>${DB.clinics.roomNo(p.clinicId)}</td>
+              <td>${coverageMini(p)}</td>
+              <td>${App.statusBadge(p.status)}</td>
+              <td class="cell-muted">${fmtDate(p.registeredAt)}</td>
+              <td class="text-right"><a href="patient-detail.html?id=${p.id}" class="btn btn-outline btn-sm">View</a></td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+    }
+
+    function coverageMini(p) {
+      const tags = [];
+      if (p.employed) tags.push("Emp");
+      if (p.hmo) tags.push("HMO");
+      if (p.philhealth) tags.push("PH");
+      if (p.yakap) tags.push("YAKAP");
+      return tags.length ? `<span class="text-sm">${tags.join(" · ")}</span>` : `<span class="cell-muted">None</span>`;
+    }
+
+    /* Demo reset — wipes every patient record so a presentation can start clean. */
+    async function clearAllRecords() {
+      const total = DB.patients.all().length;
+      if (!total) { App.toast("ℹ️", "Walang patient record na mabubura."); return; }
+      const yes = await App.confirm({
+        icon: "🗑️",
+        title: "Clear all records",
+        message: "I-clear ang LAHANG " + total + " patient record? Mawawala lahat ng registration, vitals, at consultation. This cannot be undone.",
+        okLabel: "Yes, clear all",
+        danger: true,
+      });
+      if (!yes) return;
+      DB.patients.clearAll();
+      App.toast("🗑️", "All patient records cleared.");
+      setTimeout(() => { window.location.reload(); }, 700);
+    }
+  </script>
+</body>
+</html>

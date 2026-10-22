@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clinic Rooms — Rever Medical Center, Inc.</title>
+  <link rel="icon" href="../assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script>
+    const session = requireAuth(["superadmin"]);
+    if (session) {
+      renderLayout({ page: "clinics.html", title: "Clinic Rooms", subtitle: "I-manage ang bawat clinic room sa loob ng ospital — room number, specialty, at contact details.", actions: `<button class="btn btn-primary" onclick="openClinicForm()">➕ Add Clinic Room</button>`, content: buildClinics() });
+      renderClinicModal();
+    }
+
+    function buildClinics() {
+      const clinics = DB.clinics.all();
+      const totalPatients = DB.patients.all().length;
+      const totalIncome = DB.patients.all().filter((p) => p.status === STATUS.COMPLETED)
+        .reduce((s, p) => s + (Number(p.fee) || 0), 0);
+
+      const cards = clinics.map((c) => {
+        const cp = DB.patients.byClinic(c.id);
+        const income = cp.filter((p) => p.status === STATUS.COMPLETED)
+          .reduce((s, p) => s + (Number(p.fee) || 0), 0);
+        const completed = cp.filter((p) => p.status === STATUS.COMPLETED).length;
+        const waiting = cp.filter((p) => p.status === STATUS.WAITING_DOCTOR).length;
+        const awaiting = cp.filter((p) => p.status === STATUS.TRANSFERRED || p.status === STATUS.WITH_SECRETARY).length;
+        const doctors = DB.users.byRole("doctor").filter((u) => u.clinicId === c.id).length;
+        const secretaries = DB.users.byRole("secretary").filter((u) => u.clinicId === c.id).length;
+
+        return `<div class="card clinic-card">
+          <div class="clinic-banner" style="background:${c.color || "var(--primary)"};">
+            <span class="clinic-banner-ico">${c.icon || "🏥"}</span>
+            <span class="clinic-banner-room">${App.esc(c.room ? ("Room " + c.room) : c.name)}</span>
+            <span class="badge" style="margin-left:auto;background:rgba(255,255,255,.22);color:#fff;">${cp.length} patients</span>
+          </div>
+          <div class="card-pad">
+            <div class="fw-700" style="font-size:16px;">${App.esc(DB.clinics.label(c.id))}</div>
+            <div class="text-sm text-muted" style="margin:2px 0 12px;">👨‍⚕️ ${App.esc(c.head || "—")}</div>
+            <div class="mb-16">${c.specialty ? `<span class="spec">${App.esc(c.specialty)}</span>` : ""}</div>
+
+            <div class="grid grid-3 gap-10 mb-16" style="text-align:center;">
+              <div><div class="fw-700" style="font-size:20px;">${cp.length}</div><div class="text-sm text-muted">Patients</div></div>
+              <div><div class="fw-700" style="font-size:20px;color:var(--success);">${completed}</div><div class="text-sm text-muted">Completed</div></div>
+              <div><div class="fw-700" style="font-size:20px;color:var(--purple);">${waiting}</div><div class="text-sm text-muted">Waiting</div></div>
+            </div>
+
+            <div class="flex-between text-sm mb-16">
+              <span class="text-muted">💰 ${fmtMoney(income)}</span>
+              <span class="text-muted">👨‍⚕️ ${doctors} doc · 📋 ${secretaries} sec</span>
+            </div>
+
+            <div class="flex gap-6">
+              <span class="badge badge-info">${awaiting} in intake queue</span>
+              <a href="patients.html" class="btn btn-ghost btn-sm ml-auto">View Patients</a>
+              <button class="btn btn-outline btn-sm" onclick="openClinicForm('${c.id}')">Edit Room</button>
+            </div>
+          </div>
+        </div>`;
+      }).join("");
+
+      return `
+        <div class="grid grid-3 mb-20">
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Total Clinic Rooms</div><div class="stat-value">${clinics.length}</div></div><div class="stat-ico ico-teal">🏥</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Total Patients</div><div class="stat-value">${totalPatients}</div></div><div class="stat-ico ico-blue">👥</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Completed Consultation Fees</div><div class="stat-value">${fmtMoney(totalIncome)}</div></div><div class="stat-ico ico-green">💰</div></div></div>
+        </div>
+
+        <div class="section-title">All Clinic Rooms</div>
+        <div class="grid grid-2">${cards || `<div class="empty"><div class="e-ico">🏥</div><h4>Wala pang clinic room</h4></div>`}</div>
+      `;
+    }
+
+    function renderClinicModal() {
+      const modal = document.createElement("div");
+      modal.id = "clinicFormModal";
+      modal.className = "modal-backdrop";
+      modal.innerHTML = `<div class="modal">
+        <div class="modal-head"><h3 id="clinicFormTitle">Add Clinic Room</h3><button class="modal-close" onclick="App.closeModal('clinicFormModal')">&times;</button></div>
+        <form onsubmit="return saveClinic(event)">
+          <div class="modal-body">
+            <input type="hidden" id="clinicFormId" />
+            <div class="form-grid">
+              <div class="field"><label>Room Number / Office <span class="req">*</span></label><input class="input" id="clinicRoom" required placeholder="e.g. 101" /></div>
+              <div class="field"><label>Room Head / Doctor</label><input class="input" id="clinicHead" /></div>
+              <div class="field"><label>Specialty</label><input class="input" id="clinicSpecialty" /></div>
+              <div class="field"><label>Contact Number</label><input class="input" id="clinicPhone" /></div>
+              <div class="field full"><label>Address</label><input class="input" id="clinicAddress" /></div>
+              <div class="field"><label>Icon</label><input class="input" id="clinicIcon" maxlength="4" placeholder="🏥" /></div>
+              <div class="field"><label>Card Color</label><input class="input" id="clinicColor" type="color" /></div>
+            </div>
+            <p class="text-sm text-muted mt-10">Prototype mode: changes are saved in this browser only.</p>
+          </div>
+          <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="App.closeModal('clinicFormModal')">Cancel</button><button class="btn btn-primary" type="submit">Save Room</button></div>
+        </form>
+      </div>`;
+      document.body.appendChild(modal);
+    }
+
+    function openClinicForm(id) {
+      const clinic = id ? DB.clinics.find(id) : null;
+      document.getElementById("clinicFormTitle").textContent = clinic ? "Edit Clinic Room" : "Add Clinic Room";
+      document.getElementById("clinicFormId").value = clinic ? clinic.id : "";
+      document.getElementById("clinicRoom").value = clinic ? clinic.room || "" : "";
+      document.getElementById("clinicHead").value = clinic ? clinic.head || "" : "";
+      document.getElementById("clinicSpecialty").value = clinic ? clinic.specialty || "" : "";
+      document.getElementById("clinicPhone").value = clinic ? clinic.phone || "" : "";
+      document.getElementById("clinicAddress").value = clinic ? clinic.address || "Rever Medical Center, Inc." : "Rever Medical Center, Inc.";
+      document.getElementById("clinicIcon").value = clinic ? clinic.icon || "🏥" : "🏥";
+      document.getElementById("clinicColor").value = clinic ? clinic.color || "#0B5E9C" : "#0B5E9C";
+      App.openModal("clinicFormModal");
+    }
+
+    function saveClinic(e) {
+      e.preventDefault();
+      const id = document.getElementById("clinicFormId").value;
+      const room = document.getElementById("clinicRoom").value.trim();
+      if (DB.clinics.all().some((c) => c.room && c.room.toLowerCase() === room.toLowerCase() && c.id !== id)) {
+        App.toast("⚠️", "May clinic room na gumagamit na ng room number na ito.");
+        return false;
+      }
+      const name = room.toUpperCase() === "MEDICAL DIRECTOR" ? "Medical Director's Office" : "Clinic Room " + room;
+      DB.clinics.save({
+        id: id || DB.clinics.nextId(),
+        name,
+        room,
+        head: document.getElementById("clinicHead").value.trim(),
+        specialty: document.getElementById("clinicSpecialty").value.trim(),
+        phone: document.getElementById("clinicPhone").value.trim(),
+        address: document.getElementById("clinicAddress").value.trim(),
+        icon: document.getElementById("clinicIcon").value.trim() || "🏥",
+        color: document.getElementById("clinicColor").value,
+      });
+      App.toast("✅", id ? "Clinic room updated." : "Clinic room added.");
+      location.reload();
+      return false;
+    }
+  </script>
+</body>
+</html>

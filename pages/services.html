@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Services &amp; Pricing — Rever Medical Center, Inc.</title>
+  <link rel="icon" href="../assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script src="../assets/js/services.js"></script>
+  <script>
+    const session = requireAuth(); // any logged-in role can view the price list
+
+    let activeTab = "all"; // all | laboratory | radiology
+    let searchTerm = "";
+    let exactServiceSearch = false;
+
+    if (session) {
+      renderLayout({
+        page: "services.html",
+        title: "Services & Pricing",
+        subtitle: "Tingnan at hanapin ang available na laboratory tests, imaging services, at iba pang serbisyo ng ospital.",
+        actions: `<button class="btn btn-outline" onclick="printServices()" title="Print the price list">🖨️ Print Price List</button>`,
+        content: buildPage(),
+      });
+      setTimeout(wire, 0);
+    }
+
+    function buildPage() {
+      return `<div id="svcHost"></div>`;
+    }
+
+    function activeList() {
+      if (activeTab === "laboratory") return SERVICES.laboratory;
+      if (activeTab === "radiology") return SERVICES.radiology;
+      if (activeTab === "other") return SERVICES.other;
+      return SERVICES.laboratory.concat(SERVICES.radiology, SERVICES.other);
+    }
+
+    function allServices() {
+      return SERVICES.laboratory.concat(SERVICES.radiology, SERVICES.other);
+    }
+
+    function filtered() {
+      const list = activeList();
+      if (!searchTerm) return list;
+      if (exactServiceSearch) return list.filter((s) => s.name.toLowerCase() === searchTerm);
+      return list.filter((s) =>
+        s.name.toLowerCase().includes(searchTerm) || s.cat.toLowerCase().includes(searchTerm)
+      );
+    }
+
+    const QUICK_LOOKUP = [
+      { tab: "laboratory", name: "Fasting Blood Sugar (FBS)", label: "Fasting Blood Sugar" },
+      { tab: "laboratory", name: "CBC w/ PLT", label: "CBC w/ PLT" },
+      { tab: "laboratory", name: "Urinalysis (U/A)", label: "Urinalysis" },
+      { tab: "radiology", name: "Chest PA", label: "Chest PA X-ray" },
+      { tab: "other", name: "ECG (Electrocardiogram)", label: "ECG" },
+    ];
+
+    const CATEGORY_DESCRIPTIONS = {
+      "Clinical Chemistry": "Blood chemistry and related tests",
+      Hematology: "Blood counts and coagulation tests",
+      "Clinical Microscopy": "Urine, stool, and microscopic examinations",
+      Immunoserology: "Hormone, antibody, and infectious disease tests",
+      "Drug Test": "Drug screening service",
+      Microbiology: "Culture, staining, and organism testing",
+      Histopathology: "Cytology, biopsy, and tissue examination",
+      "X-Ray": "Diagnostic X-ray examinations",
+      Ultrasound: "Ultrasound imaging examinations",
+      Cardiology: "Heart tracing and ultrasound services",
+    };
+
+    function summaryCard(label, icon, count, detail, tone) {
+      return `<article class="svc-summary-card ${tone}">
+        <div class="svc-summary-icon" aria-hidden="true">${icon}</div>
+        <div class="svc-summary-copy">
+          <div class="svc-summary-label">${label}</div>
+          <div class="svc-summary-value">${count}</div>
+          <div class="svc-summary-detail">${detail}</div>
+        </div>
+      </article>`;
+    }
+
+    function overviewHtml() {
+      const total = allServices().length;
+      return `
+        <section class="svc-intro">
+          <div class="svc-intro-copy">
+            <span class="svc-eyebrow">CLINIC PRICE GUIDE</span>
+            <h2>Hanapin ang serbisyong kailangan mo.</h2>
+            <p>Mag-browse ayon sa uri ng serbisyo o i-type ang pangalan ng test para makita agad ang nakalistang presyo.</p>
+          </div>
+          <div class="svc-intro-total">
+            <span class="svc-intro-total-value">${total}</span>
+            <span class="svc-intro-total-label">listed services</span>
+          </div>
+        </section>
+        <section class="svc-summary-grid" aria-label="Service categories">
+          ${summaryCard("Laboratory", "🧪", SERVICES.laboratory.length, `${grouped(SERVICES.laboratory).length} test categories`, "svc-tone-blue")}
+          ${summaryCard("Radiology", ICON_XRAY, SERVICES.radiology.length, `${grouped(SERVICES.radiology).length} imaging categories`, "svc-tone-teal")}
+          ${summaryCard("Other Services", "♡", SERVICES.other.length, `${grouped(SERVICES.other).length} service category`, "svc-tone-purple")}
+        </section>
+        <section class="svc-quick-section">
+          <div class="svc-section-heading">
+            <div><span class="svc-section-kicker">QUICK LOOKUP</span><h2>Check a listed price</h2></div>
+            <p>Choose a service to find it in the full price list.</p>
+          </div>
+          <div class="svc-quick-grid">
+            ${QUICK_LOOKUP.map((item) => {
+              const service = SERVICES[item.tab].find((s) => s.name === item.name);
+              return service ? `<button type="button" class="svc-quick-card" data-service-tab="${item.tab}" data-service-name="${App.esc(service.name)}">
+                <span class="svc-quick-name">${App.esc(item.label)}</span>
+                <span class="svc-quick-price">${fmtMoney(service.price)}</span>
+                <span class="svc-quick-category">${App.esc(service.cat)} <span aria-hidden="true">→</span></span>
+              </button>` : "";
+            }).join("")}
+          </div>
+        </section>
+        <div class="svc-notice"><span aria-hidden="true">ℹ️</span><p>Prices are for reference. Please confirm the current rate, service availability, and any test preparation requirements with clinic staff.</p></div>
+      `;
+    }
+
+    /* X-ray plate icon as inline SVG — renders on EVERY OS/font.
+       The x-ray emoji (U+1FA7B) only exists on Emoji-14 fonts (Win 11),
+       so it showed up BLANK on older systems. */
+    const ICON_XRAY = '<svg class="svc-ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">' +
+      '<rect x="3" y="1.5" width="10" height="13" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+      '<path d="M5.4 5.7q2.6 1.3 5.2 0M5.4 8.3q2.6 1.3 5.2 0M5.4 10.9q2.6 1.3 5.2 0" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>' +
+      '</svg>';
+
+    function tabs() {
+      const defs = [
+        ["all", "All", allServices().length],
+        ["laboratory", "🧪 Laboratory", SERVICES.laboratory.length],
+        ["radiology", ICON_XRAY + " Radiology", SERVICES.radiology.length],
+        ["other", "♡ Other Services", SERVICES.other.length],
+      ];
+      return defs.map(([k, label, count]) =>
+        `<button class="btn btn-sm ${activeTab === k ? "btn-primary" : "btn-outline"}" onclick="setTab('${k}')">${label}<span class="svc-tab-count">${count}</span></button>`
+      ).join("");
+    }
+
+    function setTab(k) {
+      activeTab = k;
+      exactServiceSearch = false;
+      const t = document.getElementById("svcTabs");
+      if (t) t.innerHTML = tabs();
+      renderResults();
+    }
+
+    function quickFind(tab, name) {
+      activeTab = tab;
+      searchTerm = name.toLowerCase();
+      exactServiceSearch = true;
+      render();
+      const input = document.getElementById("svcSearch");
+      if (input) input.focus();
+      document.getElementById("svcCatalog").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    /* Group the filtered list by category, preserving order. */
+    function grouped(list) {
+      const map = {};
+      list.forEach((s) => { (map[s.cat] = map[s.cat] || []).push(s); });
+      return Object.keys(map).map((cat) => ({ cat, items: map[cat] }));
+    }
+
+    function rowHtml(s) {
+      return `<tr>
+        <td class="fw-600">${App.esc(s.name)}</td>
+        <td class="text-right price">${fmtMoney(s.price)}</td>
+      </tr>`;
+    }
+
+    function render() {
+      document.getElementById("svcHost").innerHTML = `
+        ${overviewHtml()}
+        <div class="card svc-catalog-card mb-20" id="svcCatalog">
+          <div class="svc-catalog-heading">
+            <div><span class="svc-section-kicker">COMPLETE PRICE LIST</span><h2>Services &amp; pricing</h2></div>
+            <p>Browse by department or search by test name.</p>
+          </div>
+          <div class="svc-controls">
+            <div class="svc-tabs" id="svcTabs">${tabs()}</div>
+            <label class="svc-search-wrap">
+              <span class="svc-search-icon" aria-hidden="true">⌕</span>
+              <input class="input" id="svcSearch" type="search" placeholder="Search a test or service..." />
+            </label>
+          </div>
+          <div id="svcBody"></div>
+        </div>
+        <p class="text-sm text-muted svc-result-count" id="svcCount" aria-live="polite">—</p>
+      `;
+      const input = document.getElementById("svcSearch");
+      input.value = searchTerm;
+      input.addEventListener("input", (e) => {
+        exactServiceSearch = false;
+        searchTerm = e.target.value.toLowerCase();
+        renderResults();
+      });
+      document.querySelectorAll(".svc-quick-card").forEach((button) => {
+        button.addEventListener("click", () => quickFind(button.dataset.serviceTab, button.dataset.serviceName));
+      });
+      renderResults();
+    }
+
+    /* Update only the results + count so the search input keeps focus. */
+    function renderResults() {
+      const list = filtered();
+      const total = activeList().length;
+      const groups = grouped(list);
+      const body = document.getElementById("svcBody");
+      if (body) {
+        body.innerHTML = groups.length ? groups.map((g) => `
+          <section class="svc-group">
+          <div class="svc-cat">
+            <div><h3>${App.esc(g.cat)}</h3><p>${App.esc(CATEGORY_DESCRIPTIONS[g.cat] || "Services listed in this category")}</p></div>
+            <span class="svc-group-count">${g.items.length} ${g.items.length === 1 ? "service" : "services"}</span>
+          </div>
+          <div class="table-wrap table-wrap--scroll">
+            <table class="tbl svc-table">
+              <thead><tr><th>Service / Test</th><th class="text-right" style="width:140px;">Price</th></tr></thead>
+              <tbody>${g.items.map(rowHtml).join("")}</tbody>
+            </table>
+          </div></section>`).join("")
+          : `<div class="empty svc-empty"><div class="e-ico">⌕</div><h4>No matching services</h4><p>Try a different test name, category, or keyword.</p></div>`;
+      }
+      const count = document.getElementById("svcCount");
+      if (count) count.textContent = searchTerm
+        ? `Showing ${list.length} of ${total} services matching “${searchTerm}”.`
+        : `Showing all ${total} services in this category.`;
+    }
+
+    function wire() { render(); }
+
+    /* ---------- PRINT (A4, one page) ---------- */
+    function printServices() {
+      const list = activeTab === "all" ? SERVICES.laboratory.concat(SERVICES.radiology, SERVICES.other) : activeList();
+      const title = activeTab === "laboratory" ? "Laboratory Services & Pricing"
+        : activeTab === "radiology" ? "Radiology Services & Pricing"
+        : activeTab === "other" ? "Other Services & Pricing"
+        : "Laboratory, Radiology & Other — Services & Pricing";
+      App.printSheet(buildServicesPrint(title, list));
+    }
+
+    function buildServicesPrint(title, list) {
+      const groups = grouped(list);
+      return `
+        <div class="p-head">
+          <img class="p-logo" src="../assets/images/rmci-logo.jpg" alt="Rever Medical Center" />
+          <div class="p-head-txt">
+            <div class="p-org">Rever Medical Center, Inc.</div>
+            <div class="p-title">${App.esc(title)}</div>
+            <div class="p-sub">Official price list • effective ${new Date().toLocaleDateString("en-PH")}</div>
+          </div>
+        </div>
+        <div class="p-grid">
+          ${groups.map((g) => `
+            <section class="p-day">
+              <h3 class="p-day-title">${App.esc(g.cat)}</h3>
+              <table class="p-table">
+                <thead><tr><th>Service / Test</th><th style="text-align:right;">Price</th></tr></thead>
+                <tbody>${g.items.map((s) => `
+                  <tr><td class="p-name">${App.esc(s.name)}</td><td class="p-status" style="text-align:right;">${fmtMoney(s.price)}</td></tr>
+                `).join("")}</tbody>
+              </table>
+            </section>`).join("")}
+        </div>
+        <div class="p-foot">Generated ${new Date().toLocaleString("en-PH")} • Rever Medical Center, Inc. — Clinic Information System</div>
+      `;
+    }
+  </script>
+</body>
+</html>

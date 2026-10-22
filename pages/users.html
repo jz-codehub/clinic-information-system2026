@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Staff & Users — Rever Medical Center, Inc.</title>
+  <link rel="icon" href="../assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script>
+    const session = requireAuth(["superadmin"]);
+    if (session) {
+      renderLayout({ page: "users.html", title: "Staff & Users", subtitle: "I-manage ang staff, role, clinic room assignment, at contact details.", actions: `<button class="btn btn-primary" onclick="openUserForm()">➕ Add User</button>`, content: buildUsers() });
+      renderUserModal();
+    }
+
+    function roleBadge(role) {
+      const map = {
+        superadmin: "badge-danger",
+        doctor: "badge-info",
+        secretary: "badge-warning",
+        regular: "badge-teal",
+      };
+      return `<span class="badge ${map[role] || "badge-muted"}">${ROLE_LABEL[role] || role}</span>`;
+    }
+
+    function buildUsers() {
+      const users = DB.users.all();
+      const counts = {
+        superadmin: DB.users.byRole("superadmin").length,
+        doctor: DB.users.byRole("doctor").length,
+        secretary: DB.users.byRole("secretary").length,
+        regular: DB.users.byRole("regular").length,
+      };
+
+      const rows = users.map((u) => `
+        <tr>
+          <td><div class="cell-user"><div class="avatar">${initials(u.name)}</div>
+            <div><div class="cu-name">${App.esc(u.name)}</div><div class="cu-sub">${App.esc(u.email)}</div></div></div></td>
+          <td>${roleBadge(u.role)}</td>
+          <td>${u.clinicId ? DB.clinics.roomNo(u.clinicId) : `<span class="cell-muted">All rooms</span>`}</td>
+          <td class="cell-muted">${App.esc(u.phone || "—")}</td>
+          <td class="text-right"><button class="btn btn-outline btn-sm" onclick="openUserForm('${u.id}')">Edit</button></td>
+        </tr>`).join("");
+
+      return `
+        <div class="grid grid-4 mb-20">
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Super Admins</div><div class="stat-value">${counts.superadmin}</div></div><div class="stat-ico ico-red">🔑</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Doctors</div><div class="stat-value">${counts.doctor}</div></div><div class="stat-ico ico-blue">⚕️</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Secretaries</div><div class="stat-value">${counts.secretary}</div></div><div class="stat-ico ico-amber">📋</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Information Department</div><div class="stat-value">${counts.regular}</div></div><div class="stat-ico ico-teal">🗂️</div></div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>All Accounts</h3><span class="text-sm text-muted">${users.length} total</span></div>
+          <div class="table-wrap"><table class="tbl">
+            <thead><tr><th>User</th><th>Role</th><th>Clinic Room</th><th>Contact</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table></div>
+        </div>
+      `;
+    }
+
+    function renderUserModal() {
+      const modal = document.createElement("div");
+      modal.id = "userFormModal";
+      modal.className = "modal-backdrop";
+      modal.innerHTML = `<div class="modal">
+        <div class="modal-head"><h3 id="userFormTitle">Add Staff Account</h3><button class="modal-close" onclick="App.closeModal('userFormModal')">&times;</button></div>
+        <form onsubmit="return saveUser(event)">
+          <div class="modal-body">
+            <input type="hidden" id="userId" />
+            <div class="form-grid">
+              <div class="field"><label>Full Name <span class="req">*</span></label><input class="input" id="userName" required /></div>
+              <div class="field"><label>Email <span class="req">*</span></label><input class="input" id="userEmail" type="email" required /></div>
+              <div class="field"><label>Role <span class="req">*</span></label><select class="select" id="userRole" required>
+                <option value="regular">Information Department</option><option value="secretary">Secretary</option><option value="doctor">Doctor</option><option value="superadmin">Super Admin</option>
+              </select></div>
+              <div class="field"><label>Clinic Room</label><select class="select" id="userClinic"><option value="">All rooms / Not assigned</option>
+                ${DB.clinics.all().map((c) => `<option value="${c.id}">${App.esc(DB.clinics.label(c.id))}</option>`).join("")}
+              </select></div>
+              <div class="field"><label>Specialty</label><input class="input" id="userSpecialty" placeholder="e.g. Internal Medicine" /></div>
+              <div class="field"><label>Contact Number</label><input class="input" id="userPhone" /></div>
+              <div class="field full"><label>Password <span id="passwordRequired" class="req">*</span></label><input class="input" id="userPassword" type="password" autocomplete="new-password" /></div>
+            </div>
+            <p class="text-sm text-muted mt-10">Prototype mode: changes are saved in this browser only.</p>
+          </div>
+          <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="App.closeModal('userFormModal')">Cancel</button><button class="btn btn-primary" type="submit">Save Account</button></div>
+        </form>
+      </div>`;
+      document.body.appendChild(modal);
+    }
+
+    function openUserForm(id) {
+      const user = id ? DB.users.find(id) : null;
+      document.getElementById("userFormTitle").textContent = user ? "Edit Staff Account" : "Add Staff Account";
+      document.getElementById("userId").value = user ? user.id : "";
+      document.getElementById("userName").value = user ? user.name : "";
+      document.getElementById("userEmail").value = user ? user.email : "";
+      document.getElementById("userRole").value = user ? user.role : "regular";
+      document.getElementById("userClinic").value = user && user.clinicId ? user.clinicId : "";
+      document.getElementById("userSpecialty").value = user ? user.specialty || "" : "";
+      document.getElementById("userPhone").value = user ? user.phone || "" : "";
+      document.getElementById("userPassword").value = "";
+      document.getElementById("userPassword").required = !user;
+      document.getElementById("passwordRequired").hidden = !!user;
+      App.openModal("userFormModal");
+    }
+
+    function saveUser(e) {
+      e.preventDefault();
+      const id = document.getElementById("userId").value;
+      const existing = id ? DB.users.find(id) : null;
+      const email = document.getElementById("userEmail").value.trim().toLowerCase();
+      if (DB.users.all().some((u) => u.email.toLowerCase() === email && u.id !== id)) {
+        App.toast("⚠️", "May gumagamit na ng email address na ito.");
+        return false;
+      }
+      const password = document.getElementById("userPassword").value;
+      if (!existing && !password) {
+        App.toast("⚠️", "Maglagay ng password para sa bagong account.");
+        return false;
+      }
+      DB.users.save({
+        id: id || DB.users.nextId(),
+        name: document.getElementById("userName").value.trim(),
+        email,
+        password: password || (existing && existing.password) || "",
+        role: document.getElementById("userRole").value,
+        clinicId: document.getElementById("userClinic").value || null,
+        specialty: document.getElementById("userSpecialty").value.trim(),
+        phone: document.getElementById("userPhone").value.trim(),
+      });
+      App.toast("✅", existing ? "Staff account updated." : "Staff account added.");
+      location.reload();
+      return false;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+# Cloudflare Pages redirects
+# This is a multi-page app, so we only ensure the root serves index.html.
+# (No catch-all SPA fallback, since each page is its own .html file.)
+/  /index.html  200

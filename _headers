@@ -1,0 +1,11 @@
+# Security & cache headers for Cloudflare Pages
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# Long-cache static assets
+/assets/*
+  Cache-Control: public, max-age=604800

@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Rever Medical Center, Inc.</title>
+  <link rel="icon" href="../assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script>
+    const session = requireAuth(); // any logged-in role
+    if (session) {
+      renderLayout({
+        page: "dashboard.html",
+        title: greeting().emoji + " " + greeting().text + ", " + session.name.split(" ")[0] + "!",
+        subtitle: dashboardSubtitle(session),
+        content: buildDashboard(session),
+      });
+    }
+
+    /* Time-of-day greeting — emoji is part of the mood (all glyphs are
+       old/dark-safe so every device renders them, Win 10 included). */
+    function greeting() {
+      const h = new Date().getHours();
+      if (h < 12) return { emoji: "☀️", text: "Magandang umaga" };
+      if (h < 18) return { emoji: "⛅", text: "Magandang hapon" };
+      return { emoji: "🌙", text: "Magandang gabi" };
+    }
+
+    /* Role-specific one-line description shown under the greeting title. */
+    function dashboardSubtitle(session) {
+      const role = session.role;
+      if (role === "superadmin") return "System Overview — Kabuuan ng lahat ng clinic rooms sa loob ng Rever Medical Center, Inc., real-time na balita.";
+      if (role === "doctor") return `Doctor Dashboard • ${DB.clinics.name(session.clinicId)} • ${fmtDate(new Date().toISOString())}`;
+      if (role === "secretary") return `Secretary Dashboard • ${DB.clinics.name(session.clinicId)} • Clinic desk overview`;
+      return "Information Department — patient registration, intake, at clinic referral.";
+    }
+
+    /* =========================================================
+       BUILD DASHBOARD BASED ON ROLE
+       ========================================================= */
+    function buildDashboard(session) {
+      const role = session.role;
+      if (role === "superadmin") return superadminDashboard();
+      if (role === "doctor") return doctorDashboard(session);
+      if (role === "secretary") return secretaryDashboard(session);
+      return regularDashboard(session);
+    }
+
+    /* ---------- Shared metric computation ---------- */
+    function computeMetrics(clinicFilter) {
+      let list = DB.patients.all();
+      if (clinicFilter) list = list.filter((p) => p.clinicId === clinicFilter);
+      const today = todayKey();
+
+      const total = list.length;
+      const todays = list.filter((p) => (p.registeredAt || "").slice(0, 10) === today);
+      const completed = list.filter((p) => p.status === STATUS.COMPLETED);
+      const completedToday = completed.filter((p) => p.consultation && (p.consultation.date || "").slice(0, 10) === today);
+      const waitingDoctor = list.filter((p) => p.status === STATUS.WAITING_DOCTOR);
+      const awaitingIntake = list.filter((p) => p.status === STATUS.TRANSFERRED);
+      const income = completed.reduce((sum, p) => sum + (Number(p.fee) || 0), 0);
+      const incomeToday = completedToday.reduce((sum, p) => sum + (Number(p.fee) || 0), 0);
+
+      return { list, total, todays, completedToday, waitingDoctor, awaitingIntake, income, incomeToday };
+    }
+
+    function statCard(label, value, iconClass, icon, foot) {
+      return `<div class="stat">
+        <div class="stat-top">
+          <div>
+            <div class="stat-label">${label}</div>
+            <div class="stat-value">${value}</div>
+          </div>
+          <div class="stat-ico ${iconClass}">${(typeof STAT_ICONS !== "undefined" && STAT_ICONS[icon]) || icon}</div>
+        </div>
+        ${foot ? `<div class="stat-foot">${foot}</div>` : ""}
+      </div>`;
+    }
+
+    /* =========================================================
+       SUPER ADMIN DASHBOARD — all clinic rooms overview
+       ========================================================= */
+    function superadminDashboard() {
+      const m = computeMetrics(null);
+      const clinics = DB.clinics.all();
+
+      // per-clinic stats
+      const clinicCards = clinics.map((c) => {
+        const cp = DB.patients.byClinic(c.id);
+        const cm = computeMetrics(c.id);
+        const done = cp.filter((p) => p.status === STATUS.COMPLETED).length;
+        const pct = cp.length ? Math.round((done / cp.length) * 100) : 0;
+        return `<div class="card clinic-card">
+          <div class="clinic-banner" style="background:${c.color || "var(--primary)"};">
+            <span class="clinic-banner-ico">${c.icon || "🏥"}</span>
+            <span class="clinic-banner-room">${App.esc(c.room ? ("Room " + c.room) : c.name)}</span>
+            <span class="badge" style="margin-left:auto;background:rgba(255,255,255,.22);color:#fff;">${cp.length} patients</span>
+          </div>
+          <div class="card-pad">
+            <div class="fw-700">${App.esc(DB.clinics.label(c.id))}</div>
+            <div class="text-sm text-muted" style="margin:2px 0 10px;">👨‍⚕️ ${App.esc(c.head || "—")}${c.specialty ? " • " + App.esc(c.specialty) : ""}</div>
+            <div class="flex-between text-sm mb-16"><span class="text-muted">Completed</span><span class="fw-700">${pct}%</span></div>
+            <div class="progress"><span style="width:${pct}%"></span></div>
+            <div class="flex-between mt-16">
+              <span class="text-sm text-muted">💰 ${fmtMoney(cm.income)}</span>
+              <a href="clinics.html" class="text-sm fw-600">View →</a>
+            </div>
+          </div>
+        </div>`;
+      }).join("");
+
+      return `
+        <div class="grid grid-4 mb-20">
+          ${statCard("Total Patients", m.total, "ico-teal", "👥", `<span class="trend up">▲ ${m.todays.length}</span> ngayong araw`)}
+          ${statCard("Daily Consultations", m.completedToday.length, "ico-blue", "⚕️", `<span class="trend up">▲ active</span> consultations`)}
+          ${statCard("Waiting for Doctor", m.waitingDoctor.length, "ico-purple", "⏳", `<span class="text-muted">${m.awaitingIntake.length} awaiting intake</span>`)}
+          ${statCard("Completed Consultation Fees", fmtMoney(m.income), "ico-green", "💰", `<span class="trend up">▲ ${fmtMoney(m.incomeToday)}</span> today`)}
+        </div>
+
+        <div class="section-title">Clinic Rooms</div>
+        <div class="grid grid-3 mb-20">${clinicCards || emptyCard("Wala pang clinic room.")}</div>
+
+        ${recentActivityTable(m.list.slice(0, 6))}
+      `;
+    }
+
+    /* =========================================================
+       DOCTOR DASHBOARD
+       ========================================================= */
+    function doctorDashboard(session) {
+      const clinicId = session.clinicId;
+      const m = computeMetrics(clinicId);
+      const priorityRank = (p) => p.triagePriority === "emergency" ? 0 : p.triagePriority === "urgent" ? 1 : 2;
+      const myQueue = m.waitingDoctor
+        .filter((p) => !p.assignedDoctor || p.assignedDoctor === session.userId)
+        .sort((a, b) => priorityRank(a) - priorityRank(b)
+          || new Date(a.registeredAt) - new Date(b.registeredAt))
+        .slice(0, 5);
+
+      const queueHtml = myQueue.length ? myQueue.map((p) => `
+        <div class="queue-item">
+          <div class="queue-num">${p.id.replace("P-", "#")}</div>
+          <div class="queue-body">
+            <div class="q-name">${App.esc(p.fullName)}</div>
+            <div class="q-meta">${p.age} yrs • ${App.esc(p.gender)} • ${App.esc(p.vitals ? "Vitals recorded" : "—")}</div>
+          </div>
+          <a href="patient-detail.html?id=${p.id}" class="btn btn-primary btn-sm">Start Consultation</a>
+        </div>`).join("")
+        : `<div class="empty"><div class="e-ico">🎉</div><h4>Walang hinihintay na pasyente</h4><p>Lahat ng pasyente ay nakumpleto na. Magpahinga muno, Doc!</p></div>`;
+
+      return `
+        <div class="grid grid-4 mb-20">
+          ${statCard("Total Patients", m.total, "ico-teal", "👥", `Clinic total`)}
+          ${statCard("Consultations Today", m.completedToday.length, "ico-blue", "⚕️", `<span class="trend up">▲ done</span> today`)}
+          ${statCard("Waiting for You", m.waitingDoctor.filter((p) => !p.assignedDoctor || p.assignedDoctor === session.userId).length, "ico-purple", "⏳", `Assigned and ready for consult`)}
+          ${statCard("Completed Consultation Fees", fmtMoney(m.income), "ico-green", "💰", `${fmtMoney(m.incomeToday)} today`)}
+        </div>
+
+        <div class="grid" style="grid-template-columns:1.5fr 1fr;">
+          <div class="card">
+            <div class="card-head"><h3>Waiting Room</h3><a href="queue.html" class="link">View all →</a></div>
+            <div class="card-pad"><div class="queue-list">${queueHtml}</div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Quick Actions</h3></div>
+            <div class="card-pad">
+              <a href="queue.html" class="btn btn-primary btn-block mb-16">⏳ Open Waiting Room</a>
+              <a href="patients.html" class="btn btn-outline btn-block mb-16">🗂️ Patient Records</a>
+              <a href="reports.html" class="btn btn-outline btn-block">📈 My Reports</a>
+            </div>
+          </div>
+        </div>
+        <div class="mt-20">${recentActivityTable(m.list.slice(0, 5))}</div>
+      `;
+    }
+
+    /* =========================================================
+       SECRETARY DASHBOARD
+       ========================================================= */
+    function secretaryDashboard(session) {
+      const clinicId = session.clinicId;
+      const m = computeMetrics(clinicId);
+      const priorityRank = (p) => p.triagePriority === "emergency" ? 0 : p.triagePriority === "urgent" ? 1 : 2;
+      // Intake queue includes referred patients and walk-ins already in intake.
+      const allIntakeQueue = m.list
+        .filter((p) => p.status === STATUS.TRANSFERRED || p.status === STATUS.WITH_SECRETARY)
+        .sort((a, b) => priorityRank(a) - priorityRank(b)
+          || new Date(a.registeredAt) - new Date(b.registeredAt));
+      const intakeQueue = allIntakeQueue.slice(0, 5);
+      const awaitingCount = allIntakeQueue.length;
+
+      const queueHtml = intakeQueue.length ? intakeQueue.map((p) => `
+        <div class="queue-item">
+          <div class="queue-num">#${p.queueNumber || p.id.replace("P-", "")}</div>
+          <div class="queue-body">
+            <div class="q-name">${App.esc(p.fullName)}</div>
+            <div class="q-meta">${p.age} yrs • ${App.esc(p.gender)} • Registered ${fmtDateTime(p.registeredAt)}</div>
+          </div>
+          <a href="patient-detail.html?id=${p.id}" class="btn btn-primary btn-sm">Take Vitals</a>
+        </div>`).join("")
+        : `<div class="empty"><div class="e-ico">📋</div><h4>Walang bagong intake</h4><p>Kapag may na-register o walk-in na pasyente, lalabas dito.</p></div>`;
+
+      return `
+        <div class="grid grid-4 mb-20">
+          ${statCard("Awaiting Intake", awaitingCount, "ico-amber", "🚶", `Needs vital signs`)}
+          ${statCard("Clinic Patients", m.total, "ico-teal", "👥", `Total records`)}
+          ${statCard("Sent to Doctor", m.waitingDoctor.length, "ico-purple", "⚕️", `Ready for consult`)}
+          ${statCard("Today's Completed Fees", fmtMoney(m.incomeToday), "ico-green", "💰", `${fmtMoney(m.income)} all time`)}
+        </div>
+
+        <div class="grid" style="grid-template-columns:1.5fr 1fr;">
+          <div class="card">
+            <div class="card-head"><h3>Walk-in Intake Queue</h3><a href="queue.html" class="link">View all →</a></div>
+            <div class="card-pad"><div class="queue-list">${queueHtml}</div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Quick Actions</h3></div>
+            <div class="card-pad">
+              <a href="register-patient.html" class="btn btn-primary btn-block mb-16">➕ Register Walk-in Patient</a>
+              <a href="queue.html" class="btn btn-outline btn-block mb-16">🚶 Open Clinic Intake Queue</a>
+              <a href="reports.html" class="btn btn-outline btn-block mb-16">📈 Clinic Reports</a>
+              <a href="patients.html" class="btn btn-ghost btn-block">🗂️ Patient Records</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt-20">
+          <div class="card-head"><h3>📈 Activity Growth</h3>
+            <span class="text-sm text-muted">Bagong pasyente • last 7 days</span>
+          </div>
+          <div class="card-pad">${App.barChart(App.dailySeries(m.list, 7))}</div>
+        </div>
+      `;
+    }
+
+    /* =========================================================
+       REGULAR USER DASHBOARD
+       ========================================================= */
+    function regularDashboard(session) {
+      const mine = DB.patients.all().filter((p) => p.registeredBy === session.userId);
+      const today = mine.filter((p) => (p.registeredAt || "").slice(0, 10) === todayKey());
+
+      const recent = mine.slice(-5).reverse();
+      const listHtml = recent.length ? recent.map((p) => `
+        <div class="queue-item">
+          <div class="queue-num">${p.id.replace("P-", "#")}</div>
+          <div class="queue-body">
+            <div class="q-name">${App.esc(p.fullName)}</div>
+            <div class="q-meta">→ ${DB.clinics.name(p.clinicId)} • ${fmtDateTime(p.registeredAt)}</div>
+          </div>
+          ${App.statusBadge(p.status)}
+        </div>`).join("")
+        : `<div class="empty"><div class="e-ico">🧾</div><h4>Wala ka pang na-register</h4><p>I-click ang "Register Patient" para magsimulang mag-add ng pasyente.</p></div>`;
+
+      return `
+        <div class="grid grid-3 mb-20">
+          ${statCard("My Registrations", mine.length, "ico-teal", "🗂️", `Total patients you added`)}
+          ${statCard("Registered Today", today.length, "ico-blue", "📅", `<span class="trend up">▲ today</span>`)}
+          ${statCard("Awaiting Clinic Intake", mine.filter((p) => p.status === STATUS.TRANSFERRED).length, "ico-amber", "⏳", `Sent to the clinic`)}
+        </div>
+
+        <div class="grid" style="grid-template-columns:1.5fr 1fr;">
+          <div class="card">
+            <div class="card-head"><h3>Recent Registrations</h3><a href="patients.html" class="link">View all →</a></div>
+            <div class="card-pad"><div class="queue-list">${listHtml}</div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Quick Actions</h3></div>
+            <div class="card-pad">
+              <a href="register-patient.html" class="btn btn-primary btn-block mb-16">➕ Register New Patient</a>
+              <a href="patients.html" class="btn btn-outline btn-block">🗂️ My Registrations</a>
+              <div class="divider"></div>
+              <div class="text-sm text-muted">
+                💡 <strong>Handoff:</strong> Kolektahin ang patient details at visit reason, piliin ang clinic room, at i-transfer sa secretary para sa intake.
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    /* =========================================================
+       SHARED — recent activity table
+       ========================================================= */
+    function recentActivityTable(list) {
+      if (!list.length) return emptyCard("Wala pang aktibidad.");
+      const rows = list.map((p) => `
+        <tr>
+          <td><div class="cell-user"><div class="avatar">${initials(p.fullName)}</div>
+            <div><div class="cu-name">${App.esc(p.fullName)}</div><div class="cu-sub">${p.id} • ${p.age} yrs</div></div></div></td>
+          <td>${DB.clinics.roomNo(p.clinicId)}</td>
+          <td>${App.statusBadge(p.status)}</td>
+          <td class="cell-muted">${fmtDateTime(p.registeredAt)}</td>
+          <td class="text-right"><a href="patient-detail.html?id=${p.id}" class="btn btn-outline btn-sm">View</a></td>
+        </tr>`).join("");
+      return `<div class="card">
+        <div class="card-head"><h3>Recent Clinic Activity</h3><a href="patients.html" class="link">View all →</a></div>
+        <div class="table-wrap"><table class="tbl">
+          <thead><tr><th>Patient</th><th>Clinic Room</th><th>Status</th><th>Registered</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+      </div>`;
+    }
+
+    function emptyCard(msg) {
+      return `<div class="card"><div class="empty"><div class="e-ico">📭</div><h4>Empty</h4><p>${App.esc(msg)}</p></div></div>`;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Doctor Schedules — Rever Medical Center, Inc.</title>
+  <link rel="icon" href="../assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script src="../assets/js/rmci-logo-data.js"></script>
+  <script src="../assets/js/schedules.js"></script>
+  <script>
+    const session = requireAuth(); // any logged-in role can view availability
+
+    let activeDay = null;
+    let statusFilter = "all";
+    let searchTerm = "";
+
+    if (session) {
+      activeDay = SCHED.today();
+      renderLayout({
+        page: "schedules.html",
+        title: "Doctor Schedules",
+        subtitle: "Tingnan kung sino ang mga doctor na available at kung kailan — updated ng clinic secretary.",
+        content: buildSchedules(),
+      });
+      setTimeout(wireSchedules, 0);
+    }
+
+    function buildSchedules() {
+      return `<div id="schedHost"></div>`;
+    }
+
+    /* ---------- PRINT ---------- */
+    function printToday() {
+      const day = SCHED.today();
+      schedPrint(schedPrintDoc("Doctor Schedule — " + day, "Availability for " + day, [day]));
+    }
+    function printWeek() {
+      schedPrint(schedPrintDoc("Doctor Schedules — This Week", "Monday to Sunday availability", SCHED.days()));
+    }
+    function downloadTodayImage() {
+      const day = SCHED.today();
+      schedDownloadImage("Doctor Schedule — " + day, "Availability for " + day, [day], null, "doctor-schedule-" + day.toLowerCase() + ".png");
+    }
+    function downloadWeekImage() {
+      schedDownloadImage("Doctor Schedules — This Week", "Monday to Sunday availability", SCHED.days(), null, "doctor-schedule-week.png");
+    }
+
+    function statsHtml() {
+      const availToday = SCHED.availableToday().length;
+      const onLeave = SCHED.doctors().filter((d) => d.st === "leave").length;
+      const totalDoctors = SCHED.doctors().length;
+      const slots = SCHED.days().reduce((s, day) => s + SCHED.byDay(day).length, 0);
+      return `
+        <div class="grid grid-4 mb-20">
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Available Today</div><div class="stat-value">${availToday}</div></div><div class="stat-ico ico-green">✅</div></div>
+            <div class="stat-foot">${SCHED.today()}</div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Total Doctors</div><div class="stat-value">${totalDoctors}</div></div><div class="stat-ico ico-teal">⚕️</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">On Leave</div><div class="stat-value">${onLeave}</div></div><div class="stat-ico ico-amber">${ICON_LEAVE}</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Weekly Slots</div><div class="stat-value">${slots}</div></div><div class="stat-ico ico-blue">🗓️</div></div></div>
+        </div>`;
+    }
+
+    function dayTabs() {
+      const weekBtn = `<button class="btn btn-sm ${activeDay === "week" ? "btn-primary" : "btn-outline"}" onclick="setDay('week')">
+        📅 WEEK <span style="opacity:.7">${SCHED.days().reduce((s, d) => s + SCHED.byDay(d).length, 0)}</span></button>`;
+      return weekBtn + SCHED.days().map((day) => {
+        const cnt = SCHED.byDay(day).length;
+        const isToday = day === SCHED.today();
+        return `<button class="btn btn-sm ${day === activeDay ? "btn-primary" : "btn-outline"}" onclick="setDay('${day}')">
+          ${day.slice(0, 3).toUpperCase()}${isToday ? " •" : ""} <span style="opacity:.7">${cnt}</span></button>`;
+      }).join("");
+    }
+
+    function setDay(day) { activeDay = day; render(); }
+
+    function statusPills() {
+      return [["all", "All"], ["available", "Available"], ["unavailable", "Unavailable"], ["leave", "On leave"]]
+        .map(([k, label]) => `<button class="btn btn-sm ${statusFilter === k ? "btn-primary" : "btn-outline"}" onclick="setStatus('${k}')">${label}</button>`).join("");
+    }
+
+    function setStatus(k) { statusFilter = k; render(); }
+
+    /* Slots for the active view: a single day, or the whole week ("week"). */
+    function activeSlots() {
+      if (activeDay === "week") {
+        return SCHED.days().flatMap((day) => SCHED.byDay(day).map((s) => ({ ...s, day })));
+      }
+      return SCHED.byDay(activeDay).map((s) => ({ ...s, day: activeDay }));
+    }
+
+    function filteredSlots() {
+      return activeSlots().slice().sort((a, b) =>
+        (a.day === b.day ? schedByTime(a, b) : SCHED.days().indexOf(a.day) - SCHED.days().indexOf(b.day))
+      ).filter((s) => {
+        const okStatus = statusFilter === "all" || (s.st || "available") === statusFilter;
+        const okSearch = !searchTerm || s.n.toLowerCase().includes(searchTerm) || s.s.toLowerCase().includes(searchTerm);
+        return okStatus && okSearch;
+      });
+    }
+
+    function rowHtml(s) {
+      const secCount = schedSecretariesFor(s.s);
+      const dayCell = activeDay === "week"
+        ? `<td style="white-space:nowrap;" class="fw-600">${(s.day || "").slice(0, 3).toUpperCase()}</td>`
+        : "";
+      return `<tr>
+        ${dayCell}
+        <td><div class="cell-user"><div class="avatar">${initials(s.n)}</div>
+          <div><div class="cu-name">${App.esc(schedShortName(s.n))}</div><div class="cu-sub">${schedPartTag(s.t)}</div><div class="cu-meta">👥 ${secCount} secretary${secCount === 1 ? "" : "ies"}</div></div></div></td>
+        <td style="white-space:nowrap;" class="fw-600">${App.esc(s.t)}</td>
+        <td>${schedSpecPill(s.s)}</td>
+        <td>${schedStatusBadge(s.st || "available")}</td>
+      </tr>`;
+    }
+
+    function render() {
+      const list = filteredSlots();
+      const total = activeSlots().length;
+      const dayHeader = activeDay === "week" ? `<th>Day</th>` : "";
+      const viewLabel = activeDay === "week" ? "buong linggo" : activeDay;
+      document.getElementById("schedHost").innerHTML = `
+        ${statsHtml()}
+        <div class="card mb-20">
+          <div class="card-head" style="flex-wrap:wrap;gap:12px;">
+            <div class="flex-center gap-6" style="flex-wrap:wrap;">${dayTabs()}</div>
+          </div>
+          <div class="card-head" style="flex-wrap:wrap;gap:12px;">
+            <div class="flex-center gap-6" style="flex-wrap:wrap;">${statusPills()}</div>
+            <input class="input" id="schedSearch" placeholder="🔍 Search doctor or specialty..." style="max-width:260px;padding:8px 12px;" />
+            <div class="flex-center gap-6" style="margin-left:auto;">
+              <button class="btn btn-outline btn-sm" onclick="printToday()" title="Print today's schedule">🖨️ Today</button>
+              <button class="btn btn-outline btn-sm" onclick="printWeek()" title="Print the full week">🖨️ Week</button>
+              <button class="btn btn-outline btn-sm" onclick="downloadTodayImage()" title="Download today's schedule as a PNG image">⬇️ Today image</button>
+              <button class="btn btn-outline btn-sm" onclick="downloadWeekImage()" title="Download the full week as a PNG image">⬇️ Week image</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl">
+              <thead><tr>${dayHeader}<th>Doctor</th><th>Time</th><th>Specialty</th><th>Status</th></tr></thead>
+              <tbody id="schedBody">
+                ${list.length ? list.map(rowHtml).join("") : emptyRow()}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <p class="text-sm text-muted">Ipinapakita ${list.length} ng ${total} slot${total === 1 ? "" : "s"} sa ${viewLabel}.</p>
+      `;
+      wireSearch();
+    }
+
+    function wireSearch() {
+      const input = document.getElementById("schedSearch");
+      if (!input) return;
+      input.value = searchTerm;
+      input.addEventListener("input", (e) => {
+        searchTerm = e.target.value.toLowerCase();
+        const list = filteredSlots();
+        const body = document.getElementById("schedBody");
+        if (body) body.innerHTML = list.length ? list.map(rowHtml).join("") : emptyRow();
+        input.focus();
+      });
+    }
+
+    function emptyRow() {
+      const span = activeDay === "week" ? 5 : 4;
+      const viewLabel = activeDay === "week" ? "buong linggo" : activeDay;
+      return `<tr><td colspan="${span}" class="cell-muted" style="text-align:center;">Walang doctor na tugma sa filter sa ${viewLabel}.</td></tr>`;
+    }
+
+    function wireSchedules() { render(); }
+  </script>
+</body>
+</html>

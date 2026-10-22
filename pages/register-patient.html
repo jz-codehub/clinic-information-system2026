@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Register Patient — Rever Medical Center, Inc.</title>
+  <link rel="icon" href="../assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script>
+    const session = requireAuth(["regular", "secretary"]);
+    if (session) {
+      const secretary = session.role === "secretary";
+      renderLayout({
+        page: "register-patient.html",
+        title: secretary ? "Register Walk-in Patient" : "Register New Patient",
+        subtitle: secretary
+          ? `Diretsang walk-in sa ${App.esc(DB.clinics.name(session.clinicId))}. Kolektahin ang data at markahan ang status.`
+          : "Kolektahin ang patient data, markahan ang status, at i-transfer sa tamang clinic room.",
+        content: buildForm(),
+      });
+      setTimeout(() => {
+        initStamp();
+        renderDemoBtns();
+        const form = document.getElementById("patientForm");
+        if (form) {
+          const clearDemoIntake = () => { activeDemoPatientIndex = null; };
+          form.addEventListener("input", clearDemoIntake);
+          form.addEventListener("change", clearDemoIntake);
+        }
+        fillDemoPatient(0);
+      }, 0);
+    }
+
+    function isSecretary() { return session && session.role === "secretary"; }
+
+    function buildForm() {
+      const secretary = isSecretary();
+      const clinics = DB.clinics.all();
+      const myClinicId = secretary ? session.clinicId : "";
+      const clinicOptions = clinics.map((c) => {
+        // One hospital, many clinic ROOMS: label each option with the room and its
+        // specialty — not the shared hospital address repeated on every entry.
+        const label = App.esc(c.name) + (c.specialty ? " — " + App.esc(c.specialty) : "");
+        return `<option value="${c.id}" ${c.id === myClinicId ? "selected" : ""}>${label}</option>`;
+      }).join("");
+
+      return `
+        <form id="patientForm" onsubmit="return submitPatient(event)">
+          <div class="grid register-patient-layout">
+
+            <!-- LEFT: data collection -->
+            <div>
+              <div class="card card-pad mb-20">
+                <div class="section-title">Patient Information</div>
+                <div class="form-grid">
+                  <div class="field full">
+                    <label>MRN <span class="text-sm text-muted">(auto — puwedeng palitan)</span></label>
+                    <input class="input" id="mrn" placeholder="—" />
+                  </div>
+                  <div class="field">
+                    <label>Last Name <span class="req">*</span></label>
+                    <input class="input" id="lastName" placeholder="Dela Cruz" required />
+                  </div>
+                  <div class="field">
+                    <label>First Name <span class="req">*</span></label>
+                    <input class="input" id="firstName" placeholder="Juan" required />
+                  </div>
+                  <div class="field">
+                    <label>Middle Name</label>
+                    <input class="input" id="middleName" placeholder="Santos" />
+                  </div>
+                  <div class="field">
+                    <label>Gender <span class="req">*</span></label>
+                    <select class="select" id="gender" required>
+                      <option value="">Select...</option>
+                      <option>Male</option>
+                      <option>Female</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Phone Number <span class="req">*</span></label>
+                    <input class="input" type="tel" id="contact" placeholder="09XX-XXX-XXXX" required />
+                  </div>
+                  <div class="field">
+                    <label>Email Address <span class="req">*</span></label>
+                    <input class="input" type="email" id="email" placeholder="you@example.com" autocomplete="email" required />
+                  </div>
+                  <div class="field">
+                    <label>Date of Birth <span class="req">*</span></label>
+                    <input class="input" type="date" id="birthdate" required onchange="updateAge()" />
+                  </div>
+                  <div class="field">
+                    <label>Age <span class="text-sm text-muted">(auto — puwedeng palitan)</span></label>
+                    <input class="input" type="number" min="0" id="ageDisplay" placeholder="Auto" oninput="ageTouched=true" />
+                  </div>
+                  <div class="field">
+                    <label>Birthplace</label>
+                    <input class="input" id="birthplace" placeholder="City / Province" />
+                  </div>
+                  <div class="field">
+                    <label>Nationality</label>
+                    <input class="input" id="nationality" placeholder="Filipino" value="Filipino" />
+                  </div>
+                  <div class="field">
+                    <label>Religion</label>
+                    <input class="input" id="religion" placeholder="e.g. Roman Catholic" />
+                  </div>
+                  <div class="field">
+                    <label>Marital Status</label>
+                    <select class="select" id="maritalStatus">
+                      <option value="">Select...</option>
+                      <option>Single</option>
+                      <option>Married</option>
+                      <option>Widowed</option>
+                      <option>Separated</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Occupation</label>
+                    <input class="input" id="occupation" placeholder="e.g. Teacher" />
+                  </div>
+                  <div class="field">
+                    <label>Company Name</label>
+                    <input class="input" id="companyName" placeholder="Employer (if any)" />
+                  </div>
+                  <div class="field">
+                    <label>Father&rsquo;s Name</label>
+                    <input class="input" id="fathersName" placeholder="Father's full name" />
+                  </div>
+                  <div class="field">
+                    <label>Spouse&rsquo;s Name</label>
+                    <input class="input" id="spousesName" placeholder="Spouse's full name" />
+                  </div>
+                  <div class="field">
+                    <label>Mother&rsquo;s Name</label>
+                    <input class="input" id="mothersName" placeholder="Mother's full name" />
+                  </div>
+                  <div class="field">
+                    <label>Mother&rsquo;s Cellphone Number</label>
+                    <input class="input" id="mothersCellphone" placeholder="09XX-XXX-XXXX" />
+                  </div>
+                  <div class="field">
+                    <label>Mother&rsquo;s Age</label>
+                    <input class="input" type="number" id="mothersAge" placeholder="e.g. 52" min="0" />
+                  </div>
+                  <div class="field full">
+                    <label>Complete Address <span class="req">*</span></label>
+                    <input class="input" id="address" placeholder="House / Street, Barangay, City, Province" required />
+                  </div>
+                  <div class="field">
+                    <label>Date <span class="text-sm text-muted">(editable)</span></label>
+                    <input class="input" type="date" id="regDate" />
+                  </div>
+                  <div class="field">
+                    <label>Time <span class="text-sm text-muted">(editable)</span></label>
+                    <input class="input" type="time" id="regTime" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="card card-pad mb-20">
+                <div class="section-title">Emergency Contact</div>
+                <div class="form-grid">
+                  <div class="field">
+                    <label>Name</label>
+                    <input class="input" id="emergencyName" placeholder="Contact person's full name" />
+                  </div>
+                  <div class="field">
+                    <label>Relationship</label>
+                    <input class="input" id="emergencyRelationship" placeholder="e.g. Mother, Spouse" />
+                  </div>
+                  <div class="field full">
+                    <label>Address</label>
+                    <input class="input" id="emergencyAddress" placeholder="Contact person's address" />
+                  </div>
+                  <div class="field">
+                    <label>Contact Number</label>
+                    <input class="input" id="emergencyContact" placeholder="09XX-XXX-XXXX" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="card card-pad mb-20">
+                <div class="section-title">Coverage &amp; Status</div>
+                <p class="text-sm text-muted mb-16">Piliin ang Yes o No para sa bawat kategorya.</p>
+                <div class="form-grid">
+                  ${ynField("employed", "Employed?")}
+                  ${ynField("hmo", "HMO Member?")}
+                  ${ynField("philhealth", "PhilHealth Member?")}
+                  ${ynField("yakap", "YAKAP Member?")}
+                </div>
+              </div>
+
+            </div>
+
+            <!-- RIGHT: transfer -->
+            <div class="register-clinic-column">
+              <div class="card card-pad register-clinic-panel">
+                <div class="section-title">${secretary ? "Walk-in Clinic Room" : "Assign Clinic Room"}</div>
+                <div class="field">
+                  <label>${secretary ? "Iyong clinic room" : "Pumili ng clinic room"} <span class="req">*</span></label>
+                  <select class="select" id="clinicId" required>
+                    <option value="">Select clinic room...</option>
+                    ${clinicOptions}
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Consultation Fee</label>
+                  <input class="input" type="number" id="fee" placeholder="500" value="500" min="0" />
+                </div>
+
+                <div class="divider"></div>
+                <div class="text-sm text-muted mb-16">
+                  <strong>Summary:</strong><br />
+                  ✅ Ise-save ang patient record<br />
+                  ✅ Ipo-post sa clinic room queue<br />
+                  ${secretary ? "✅ Handa nang simulan ang intake" : "✅ Ipapakita sa secretary queue"}
+                </div>
+                <div class="register-form-actions">
+                  <button type="button" class="btn btn-outline btn-block btn-lg register-print-button" onclick="printRegistrationForm()">🖨️ Print Registration Form</button>
+                  <button type="button" class="btn btn-outline btn-block btn-lg register-new-button" onclick="clearForm()">📝 New Form</button>
+                  <button type="submit" class="btn btn-primary btn-block btn-lg register-submit-button">${secretary ? "🚶 Register Walk-in" : "💾 Save & Transfer"}</button>
+                  <a href="${secretary ? "queue.html" : "patients.html"}" class="btn btn-ghost btn-block register-cancel-button">Cancel</a>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </form>
+
+        <!-- DEMO PATIENTS PANEL (presentation) -->
+        <div class="card card-pad mb-20 demo-panel">
+          <div class="section-title">🎬 Demo Patients (for presentation)</div>
+          <p class="text-sm text-muted mb-12">Naka-fill na agad ang form kapag binuksan (Demo 1 — Juan Dela Cruz). Pindutin ang ibaba para palitan ang pasyente.</p>
+          <div class="demo-btns" id="demoBtns"></div>
+          <div class="mt-14" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="clearForm()">🧹 Clear Form</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="toggleDemoHint()">💡 Demo Flow Hint</button>
+          </div>
+          <div id="demoHint" class="mt-10 p-12 rounded" style="display:none;border:1px solid var(--border, #e2e8f0);background:var(--muted-bg, #f1f5f9);color:var(--text-muted, #64748b);"></div>
+        </div>
+      `;
+    }
+
+    function ynField(name, label) {
+      return `<div class="field">
+        <label>${label}</label>
+        <div class="yn-group">
+          <label class="yn-option"><input type="radio" name="${name}" value="yes" /><span>Yes</span></label>
+          <label class="yn-option"><input type="radio" name="${name}" value="no" checked /><span>No</span></label>
+        </div>
+      </div>`;
+    }
+
+    let ageTouched = false; // becomes true once the user manually edits Age
+    let activeDemoPatientIndex = null;
+    function initStamp() {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      const mrn = document.getElementById("mrn"); if (mrn && !mrn.value) mrn.value = DB.patients.nextId();
+      const rd = document.getElementById("regDate"); if (rd && !rd.value) rd.value = now.toISOString().slice(0, 10); // YYYY-MM-DD (type=date)
+      const rt = document.getElementById("regTime"); if (rt && !rt.value) rt.value = pad(now.getHours()) + ":" + pad(now.getMinutes()); // HH:MM (type=time)
+    }
+
+    /* ---------- Demo patient helpers (presentation) ---------- */
+    function renderDemoBtns() {
+      const host = document.getElementById("demoBtns");
+      if (!host) return;
+      host.innerHTML = DEMO_PATIENTS.map((d, i) => `
+        <button type="button" class="btn btn-outline btn-sm demo-btn" onclick="fillDemoPatient(${i})" title="${App.esc(d.label)}">
+          ${App.esc(d.label)}
+        </button>
+      `).join("");
+    }
+
+    function setField(id, value) {
+      const el = document.getElementById(id);
+      if (el) el.value = value == null ? "" : value;
+    }
+    function setSelect(id, value) {
+      const el = document.getElementById(id);
+      if (el && value != null) el.value = value;
+    }
+    function setRadio(name, value) {
+      const el = document.querySelector('input[name="' + name + '"][value="' + value + '"]');
+      if (el) el.checked = true;
+    }
+
+    function fillDemoPatient(index) {
+      const d = DEMO_PATIENTS[index];
+      if (!d) return;
+      activeDemoPatientIndex = index;
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      setField("firstName", d.firstName);
+      setField("lastName", d.lastName);
+      setField("middleName", d.middleName);
+      setSelect("gender", d.gender);
+      setField("contact", d.contact);
+      setField("email", d.email);
+      setField("birthdate", d.birthdate);
+      const ageEl = document.getElementById("ageDisplay");
+      if (ageEl) ageEl.value = d.birthdate ? ageFromBirthdate(d.birthdate) : "";
+      setField("address", d.address);
+      setRadio("employed", d.employed);
+      setRadio("hmo", d.hmo);
+      setRadio("philhealth", d.philhealth);
+      setRadio("yakap", d.yakap);
+      setField("fee", d.fee);
+      setField("birthplace", d.birthplace);
+      setField("nationality", d.nationality);
+      setField("religion", d.religion);
+      setField("maritalStatus", d.maritalStatus);
+      setField("occupation", d.occupation);
+      setField("companyName", d.companyName);
+      setField("fathersName", d.fathersName);
+      setField("spousesName", d.spousesName);
+      setField("mothersName", d.mothersName);
+      setField("mothersCellphone", d.mothersCellphone);
+      setField("mothersAge", d.mothersAge);
+      setField("emergencyName", d.emergencyName);
+      setField("emergencyRelationship", d.emergencyRelationship);
+      setField("emergencyAddress", d.emergencyAddress);
+      setField("emergencyContact", d.emergencyContact);
+      setField("regDate", now.toISOString().slice(0, 10));
+      setField("regTime", pad(now.getHours()) + ":" + pad(now.getMinutes()));
+      if (d.clinicId) setSelect("clinicId", d.clinicId);
+      App.toast("🎬", "Form na-fill: " + d.label);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    async function clearForm() {
+      const yes = await App.confirm({
+        icon: "🧹",
+        title: "Clear form",
+        message: "I-clear ang lahat ng nasa form? Mabubura ang lahat ng na-fill na data.",
+        okLabel: "Clear form",
+        danger: true,
+      });
+      if (!yes) return;
+      const form = document.getElementById("patientForm");
+      if (form) form.reset();
+      activeDemoPatientIndex = null;
+      ageTouched = false;
+      const ageEl = document.getElementById("ageDisplay");
+      if (ageEl) ageEl.value = "";
+      initStamp();
+      App.toast("📝", "Bagong form na. Maaari nang mag-register ng panibagong patient.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function toggleDemoHint() {
+      const hint = document.getElementById("demoHint");
+      const isShowing = hint.style.display !== "none";
+      hint.style.display = isShowing ? "none" : "block";
+      if (!isShowing) {
+        hint.innerHTML = `
+          <strong>Demo Flow (5 pasyente, magkasunod):</strong><br />
+          1. Pumunta sa Patient Records → i-click "Clear All Records" para magsimulang walang data.<br />
+          2. Dito, piliin ang demo patient → i-fill ang form → i-submit.<br />
+          3. Kung secretary: pumunta sa Queue → Start Intake → Patient Detail → kumpletuhin ang intake.<br />
+          4. Kung doctor: pumunta sa Doctor Waiting Room → Start Consult → Patient Detail → Complete Consultation.<br />
+          5. Balik sa Register Patient → piliin ang susunod na (ibang) demo patient. Ulit hanggang 5.<br />
+          6. Pwede ring i-print ang Guide Map sa navigation.
+        `;
+      }
+    }
+
+    function updateAge() {
+      if (ageTouched) return; // respect a manually entered age
+      const bd = document.getElementById("birthdate").value;
+      document.getElementById("ageDisplay").value = bd ? ageFromBirthdate(bd) : "";
+    }
+
+    function printRegistrationForm() {
+      const value = (id) => {
+        const field = document.getElementById(id);
+        return field ? field.value.trim() : "";
+      };
+      const display = (id) => App.esc(value(id) || "—");
+      const selected = (name) => {
+        const field = document.querySelector('input[name="' + name + '"]:checked');
+        return field && field.value === "yes" ? "Yes" : "No";
+      };
+      const row = (label, content) => `
+        <div class="ab-info-pair"><span>${label}</span><strong>${content}</strong></div>`;
+      const section = (number, title, rows) => `
+        <section class="ab-box registration-print-section">
+          <div class="ab-box-title"><span class="ab-num">${number}</span>${title}</div>
+          <div class="ab-info-grid">${rows}</div>
+        </section>`;
+      const fullName = [value("firstName"), value("middleName"), value("lastName")]
+        .filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+      const clinic = DB.clinics.all().find((item) => item.id === value("clinicId"));
+      const date = value("regDate");
+      const registeredAt = date
+        ? new Date(date + "T00:00:00").toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })
+        : "—";
+      const logoPath = location.pathname.includes("/pages/") ? "../assets/images/rmci-logo.jpg" : "assets/images/rmci-logo.jpg";
+      const html = `
+        <div class="ab-sheet registration-print">
+          <div class="ab-head">
+            <img class="ab-logo" src="${logoPath}" alt="Rever Medical Center" />
+            <div class="ab-head-txt">
+              <div class="ab-org">Rever Medical Center, Inc.</div>
+              <div class="ab-contact">Clinic Information System • Patient Registration</div>
+            </div>
+            <div class="ab-doc">
+              <div class="d-l">Registration Date</div>
+              <div class="d-v">${App.esc(registeredAt)}</div>
+            </div>
+          </div>
+          <div class="ab-titlebar"><span class="ab-title">PATIENT REGISTRATION FORM</span></div>
+          <div class="ab-strip">
+            <span class="s-name">${App.esc(fullName || "Patient Name")}</span>
+            <span class="s-meta">MRN ${display("mrn")}</span>
+            <span class="s-meta">${App.esc(clinic ? clinic.name : "Clinic room not selected")}</span>
+          </div>
+          ${section(1, "Patient Information", [
+            row("Last Name", display("lastName")),
+            row("First Name", display("firstName")),
+            row("Middle Name", display("middleName")),
+            row("Gender", display("gender")),
+            row("Date of Birth", display("birthdate")),
+            row("Age", display("ageDisplay")),
+            row("Phone Number", display("contact")),
+            row("Email Address", display("email")),
+            row("Complete Address", display("address")),
+            row("Birthplace", display("birthplace")),
+            row("Nationality", display("nationality")),
+            row("Religion", display("religion")),
+            row("Marital Status", display("maritalStatus")),
+            row("Occupation", display("occupation")),
+            row("Company Name", display("companyName")),
+            row("Father's Name", display("fathersName")),
+            row("Spouse's Name", display("spousesName")),
+            row("Mother's Name", display("mothersName")),
+            row("Mother's Cellphone", display("mothersCellphone")),
+            row("Mother's Age", display("mothersAge")),
+            row("Registration Time", display("regTime")),
+          ].join(""))}
+          ${section(2, "Emergency Contact", [
+            row("Name", display("emergencyName")),
+            row("Relationship", display("emergencyRelationship")),
+            row("Contact Number", display("emergencyContact")),
+            row("Address", display("emergencyAddress")),
+          ].join(""))}
+          ${section(3, "Coverage & Status", [
+            row("Employed", selected("employed")),
+            row("HMO Member", selected("hmo")),
+            row("PhilHealth Member", selected("philhealth")),
+            row("YAKAP Member", selected("yakap")),
+          ].join(""))}
+          <div class="ab-foot">
+            <div class="ab-conf">Confidential Patient Information</div>
+            <div class="ab-meta">Rever Medical Center, Inc. • Please keep this document secure.</div>
+          </div>
+        </div>
+      `;
+      App.printSheet(html);
+    }
+
+    function submitPatient(e) {
+      e.preventDefault();
+      const g = (id) => document.getElementById(id).value.trim();
+      const yn = (name) => (document.querySelector('input[name="' + name + '"]:checked') || {}).value === "yes";
+      const secretary = isSecretary();
+
+      // MRN is editable — reject duplicates so we never overwrite an existing record.
+      const mrn = g("mrn");
+      if (mrn && DB.patients.find(mrn)) { App.toast("⚠️", `MRN "${mrn}" already exists. Use a unique MRN.`); return false; }
+      // Registration Date/Time are editable — combine into one timestamp.
+      const _rd = g("regDate"), _rt = g("regTime");
+      const registeredAt = (_rd && _rt) ? new Date(_rd + "T" + _rt).toISOString() : new Date().toISOString();
+      const clinicId = secretary ? session.clinicId : g("clinicId");
+      const _age = g("ageDisplay");
+
+      const first = g("firstName"), middle = g("middleName"), last = g("lastName");
+      const fullName = [first, middle, last].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+      const demoIntake = activeDemoPatientIndex === null ? null : DEMO_PATIENTS[activeDemoPatientIndex];
+
+      const patient = {
+        id: mrn || DB.patients.nextId(),
+        fullName: fullName,
+        age: _age !== "" ? Number(_age) : ageFromBirthdate(g("birthdate")),
+        birthdate: g("birthdate"),
+        gender: g("gender"),
+        contact: g("contact"),
+        email: g("email").toLowerCase(),
+        address: g("address"),
+        employed: yn("employed"),
+        hmo: yn("hmo"),
+        philhealth: yn("philhealth"),
+        yakap: yn("yakap"),
+        complaint: demoIntake ? demoIntake.complaint : "",
+        clinicId,
+        queueNumber: DB.patients.nextQueueNumber(clinicId, registeredAt.slice(0, 10)),
+        fee: Number(g("fee")) || 0,
+        // Secretary-registered walk-ins go straight to the intake/vitals step.
+        status: secretary ? STATUS.WITH_SECRETARY : STATUS.TRANSFERRED,
+        registeredBy: session.userId,
+        assignedSecretary: secretary ? session.userId : undefined,
+        intakeStartedAt: secretary ? registeredAt : undefined,
+        registeredAt: registeredAt,
+        vitals: null,
+        consultation: null,
+        details: {
+          lastName: last, firstName: first, middleName: middle,
+          birthplace: g("birthplace"), nationality: g("nationality"),
+          religion: g("religion"), maritalStatus: g("maritalStatus"),
+          occupation: g("occupation"), companyName: g("companyName"),
+          fathersName: g("fathersName"), spousesName: g("spousesName"),
+          mothersName: g("mothersName"), mothersCellphone: g("mothersCellphone"),
+          mothersAge: g("mothersAge")
+        },
+        emergency: {
+          name: g("emergencyName"), relationship: g("emergencyRelationship"),
+          address: g("emergencyAddress"), contact: g("emergencyContact")
+        },
+        medicalAlerts: {
+          allergyStatus: demoIntake ? demoIntake.allergyStatus : "unknown",
+          allergies: demoIntake ? demoIntake.allergies : "",
+          currentMedications: demoIntake ? demoIntake.currentMedications : ""
+        }
+      };
+
+      DB.patients.save(patient);
+      App.toast("✅", secretary
+        ? `Walk-in ${patient.id} na-register! Handa nang bigyan ng vital signs.`
+        : `Patient ${patient.id} na-register at na-transfer sa clinic room!`);
+      setTimeout(() => { window.location.href = secretary ? "queue.html" : "patients.html"; }, 900);
+      return false;
+    }
+  </script>
+</body>
+</html>

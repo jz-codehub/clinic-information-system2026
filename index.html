@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rever Medical Center, Inc. — Clinic Information System</title>
+  <meta name="description" content="Rever Medical Center, Inc. Clinic Information System — patient intake, consultations, and clinic management." />
+  <link rel="icon" href="assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <!-- Brand / hero side -->
+    <div class="login-brand">
+      <div class="login-logo">
+        <div class="logo-mark"><img src="assets/images/rmci-logo.jpg" alt="Rever Medical Center" /></div>
+        <div>
+          <div class="login-brand-name">Rever Medical Center, Inc.</div>
+          <div class="login-brand-sub">Clinic Information System</div>
+        </div>
+      </div>
+
+      <div class="login-hero">
+        <h1>Sentralisadong<br />Clinic Management</h1>
+        <p>Isang sistema para sa iisang hospital — <strong>Rever Medical Center, Inc.</strong> — na may maraming clinic room. Mula patient intake, vital signs, hanggang consultation at reporting.</p>
+      </div>
+
+      <div class="login-features">
+        <div class="login-feature"><div class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="7" r="3.5"/><path d="M1.5 20v-1a5 5 0 0 1 5-5h3a5 5 0 0 1 5 5v1"/><path d="M18.5 8v6"/><path d="M21.5 11h-6"/></svg></div><div>Fast patient registration &amp; intake</div></div>
+        <div class="login-feature"><div class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div><div>Digital vital signs &amp; medical history</div></div>
+        <div class="login-feature"><div class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><rect x="7" y="12" width="3" height="5" rx="1"/><rect x="12" y="8" width="3" height="9" rx="1"/><rect x="17" y="5" width="3" height="12" rx="1"/></svg></div><div>Real-time dashboards &amp; income reports</div></div>
+      </div>
+    </div>
+
+    <!-- Login form side -->
+    <div class="login-panel">
+      <div class="login-box">
+        <h2>Welcome back</h2>
+        <p class="sub">Mag-sign in para magpatuloy sa iyong account.</p>
+
+        <form id="loginForm" autocomplete="off">
+          <div class="field">
+            <label for="email">Email address</label>
+            <input class="input" type="email" id="email" placeholder="you@rever.ph" required />
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <input class="input" type="password" id="password" placeholder="••••••••" required />
+          </div>
+          <div id="loginError" class="text-sm" style="color:var(--danger);margin-bottom:12px;display:none;"></div>
+          <button class="btn btn-primary btn-block btn-lg" type="submit">Sign in</button>
+        </form>
+
+        <div class="divider"></div>
+
+        <div class="text-sm text-muted fw-600 mb-16">Demo accounts — click para i-fill:</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <button class="btn btn-outline btn-sm" onclick="fillLogin('superadmin@rever.ph','admin123')">Super Admin</button>
+          <button class="btn btn-outline btn-sm" onclick="fillLogin('regular@rever.ph','user123')">Information Department</button>
+          <button class="btn btn-outline btn-sm" onclick="fillLogin('secretary@rever.ph','sec123')">Secretary</button>
+          <button class="btn btn-outline btn-sm" onclick="fillLogin('doctor@rever.ph','doc123')">Doctor</button>
+        </div>
+      </div>
+      <footer class="login-legal">
+        <p class="login-legal-copyright">&copy; 2026 Johnzynd. All Rights Reserved.</p>
+        <p>This website, including its original design, layout, graphics, and code, was created and developed by Johnzynd.</p>
+        <p>Unauthorized copying, reproduction, modification, or redistribution of this website or its original content is prohibited without prior permission.</p>
+      </footer>
+    </div>
+  </div>
+
+  <script src="assets/js/data.js"></script>
+  <script>
+    DB.init();
+
+    function fillLogin(email, pass) {
+      document.getElementById("email").value = email;
+      document.getElementById("password").value = pass;
+    }
+
+    document.getElementById("loginForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      const err = document.getElementById("loginError");
+
+      const session = DB.login(email, password);
+      if (!session) {
+        err.textContent = "Mali ang email o password. Subukan muli.";
+        err.style.display = "block";
+        return;
+      }
+      err.style.display = "none";
+      const home = { superadmin: "pages/dashboard.html", doctor: "pages/dashboard.html", secretary: "pages/dashboard.html", regular: "pages/dashboard.html" };
+      window.location.href = home[session.role] || "pages/dashboard.html";
+    });
+  </script>
+</body>
+</html>

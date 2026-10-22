@@ -1,0 +1,1552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guide Map · Rever Medical Center, Inc.</title>
+  <link rel="stylesheet" href="../assets/css/style.css" />
+  <style>
+    .gm-wrap { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; min-width: 0; }
+    .gm-wrap > *, .gm-side, .gm-map-card, .gm-map-card .card-body { min-width: 0; max-width: 100%; }
+    .gm-side .card-head { padding: 14px 16px; }
+    .gm-side .card-body { padding: 14px 16px; }
+    .gm-search-row { position: relative; }
+    .gm-search-row input { padding-left: 34px; }
+    .gm-search-row .s-ico { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); opacity: .5; font-size: 14px; }
+
+    .gm-room-list { display: flex; flex-direction: column; gap: 7px; max-height: 430px; overflow-y: auto; margin-top: 12px; }
+    .gm-room-item { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid var(--border, #e2e8f0); border-radius: 10px; background: #fff; cursor: pointer; transition: border-color .15s, background .15s; }
+    .gm-room-item:hover { border-color: #94a3b8; background: #f8fafc; }
+    .gm-room-item.active { border-color: #0A5E9C; background: #F0F7FD; }
+    .gm-room-item .r-ico { font-size: 16px; width: 24px; height: 24px; display: grid; place-items: center; background: #f1f5f9; border-radius: 6px; flex-shrink: 0; }
+    .gm-room-item .r-name { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; line-height: 1.2; }
+    .gm-room-item .r-cat { font-size: 11px; color: var(--text-light, #94a3b8); }
+
+    .gm-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+    .gm-toolbar .st-label { min-width: 0; max-width: 100%; }
+    #startSel { min-width: 0; max-width: min(58vw, 240px); }
+    .gm-toolbar .spacer { flex: 1; }
+    .chip-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; padding: 7px 11px; border-radius: 9px; border: 1px solid var(--border, #e2e8f0); background: #fff; color: #334155; cursor: pointer; transition: .15s; }
+    .chip-btn:hover { border-color: #94a3b8; background: #f8fafc; }
+    .chip-btn.on { background: #0A5E9C; border-color: #0A5E9C; color: #fff; }
+
+    .gm-map-card .card-body { padding: 14px; }
+    .gm-holder { position: relative; height: min(72vh, 820px); min-height: 440px; border: 1px solid var(--border, #e2e8f0); border-radius: 12px; overflow: hidden; background: #fff; cursor: grab; touch-action: none; user-select: none; }
+    .gm-holder.is-panning { cursor: grabbing; }
+    .gm-holder svg { display: block; width: 100%; height: 100%; transform-origin: 0 0; will-change: transform; }
+    .gm-map-card.gm-fullscreen { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; width: 100vw; height: 100vh; height: 100dvh; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: #fff; overflow: hidden; transform: none !important; }
+    .gm-map-card.gm-fullscreen > .card-head { display: none; }
+    .gm-map-card.gm-fullscreen > .card-body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; padding: 0; }
+    .gm-map-card.gm-fullscreen .gm-toolbar,
+    .gm-map-card.gm-fullscreen .gm-subtoolbar,
+    .gm-map-card.gm-fullscreen .gm-hint,
+    .gm-map-card.gm-fullscreen .route-box { display: none !important; }
+    .gm-map-card.gm-fullscreen .gm-holder { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; max-height: none; border: 0; border-radius: 0; }
+    .gm-map-card.gm-fullscreen .gm-holder svg { pointer-events: none; }
+    /* Route must keep working while fullscreen: rooms, doors, entrance flags,
+       S/D markers and edit handles stay interactive. Their pointer events still
+       bubble to .gm-holder, so drag-to-pan still starts anywhere else. Mirrors
+       the list startPan() skips — fullscreen behaves like the normal view. */
+    .gm-map-card.gm-fullscreen .gm-holder svg .room,
+    .gm-map-card.gm-fullscreen .gm-holder svg .marker,
+    .gm-map-card.gm-fullscreen .gm-holder svg .way-pt,
+    .gm-map-card.gm-fullscreen .gm-holder svg .chair-g,
+    .gm-map-card.gm-fullscreen .gm-holder svg .door-handle,
+    .gm-map-card.gm-fullscreen .gm-holder svg .door-ico,
+    .gm-map-card.gm-fullscreen .gm-holder svg .wl-hit,
+    .gm-map-card.gm-fullscreen .gm-holder svg .wp,
+    .gm-map-card.gm-fullscreen .gm-holder svg .rh,
+    .gm-map-card.gm-fullscreen .gm-holder svg .ent-flag { pointer-events: auto; }
+    .gm-exit-full { display: none; }
+    .gm-map-card.gm-fullscreen > .gm-exit-full {
+      position: fixed;
+      top: max(14px, env(safe-area-inset-top));
+      right: max(14px, env(safe-area-inset-right));
+      z-index: 10001;
+      display: inline-flex;
+      min-height: 42px;
+      align-items: center;
+      justify-content: center;
+      padding: 9px 15px;
+      border: 1px solid rgba(255,255,255,.28);
+      border-radius: 10px;
+      color: #fff;
+      background: rgba(8,69,115,.92);
+      box-shadow: 0 4px 14px rgba(15,23,42,.22);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+    .gm-map-card.gm-fullscreen > .gm-exit-full:hover { background: #0B5E9C; }
+    .gm-hint { font-size: 12px; color: var(--text-light, #94a3b8); margin-top: 10px; }
+    .zoom-grp { display: inline-flex; align-items: center; gap: 4px; }
+    .zoom-grp .chip-btn { min-width: 38px; justify-content: center; padding: 7px 10px; }
+    #zoomLbl { font-size: 12px; font-weight: 700; color: #0A5E9C; min-width: 44px; text-align: center; }
+    .st-label { font-size: 12.5px; font-weight: 600; color: #334155; display: inline-flex; align-items: center; gap: 6px; }
+    .st-label select { font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--border,#e2e8f0); border-radius: 9px; background: #fff; font-weight: 600; color: #334155; }
+    .gm-subtoolbar select { font-size: 12px; padding: 6px 7px; border: 1px solid var(--border,#e2e8f0); border-radius: 8px; background: #fff; font-weight: 600; }
+    .way-pt { fill: #f59e0b; stroke: #fff; stroke-width: 2; cursor: grab; }
+    .way-num { font: 700 9px system-ui, sans-serif; fill: #7c2d12; text-anchor: middle; pointer-events: none; }
+    .way-line { fill: none; stroke: #f59e0b; stroke-width: 2.5; stroke-dasharray: 7 5; opacity: .9; }
+    .chair-g { cursor: grab; }
+    .chair-g text { font-size: 17px; text-anchor: middle; pointer-events: none; }
+    .chair-g.sel circle { stroke: #0A5E9C; stroke-width: 2.5; }
+    .col-div { stroke: #64748b; stroke-width: 1.4; stroke-dasharray: 4 3; }
+    .col-tag { font: 700 8px system-ui, sans-serif; fill: #475569; text-anchor: middle; pointer-events: none; }
+    .ent-flag { cursor: pointer; }
+    .ent-flag .cap { font: 700 8.5px system-ui, sans-serif; fill: #0A5E9C; text-anchor: middle; letter-spacing: .4px; pointer-events: none; }
+    .way-num { font: 700 9px system-ui, sans-serif; fill: #7c2d12; text-anchor: middle; pointer-events: none; }
+    .way-line { fill: none; stroke: #f59e0b; stroke-width: 2.5; stroke-dasharray: 7 5; opacity: .9; }
+    .chair-g { cursor: grab; }
+    .chair-g text { font-size: 17px; text-anchor: middle; pointer-events: none; }
+    .chair-g.sel circle { stroke: #0A5E9C; stroke-width: 2.5; }
+    .col-div { stroke: #64748b; stroke-width: 1.4; stroke-dasharray: 4 3; }
+    .col-tag { font: 700 8px system-ui, sans-serif; fill: #475569; text-anchor: middle; pointer-events: none; }
+    .ent-flag { cursor: pointer; }
+    .ent-flag .cap { font: 700 8.5px system-ui, sans-serif; fill: #0A5E9C; text-anchor: middle; letter-spacing: .4px; pointer-events: none; }
+    .chair-g .chair-lbl { font-size: 8px; font-weight: 700; fill: #64748b; text-anchor: middle; pointer-events: none; }
+    .cell-tag { font: 700 8px system-ui, sans-serif; fill: #475569; text-anchor: middle; pointer-events: none; }
+    .cell-tag .cell-no { fill: #0A5E9C; font-weight: 800; font-size: 8.5px; }
+    .door-ico { cursor: pointer; }
+    .door-ico-bg { fill: #ffffff; stroke: #0A5E9C; stroke-width: 2; }
+    .door-ico-t { font: 700 9px system-ui, sans-serif; text-anchor: middle; pointer-events: none; }
+    .door-handle { cursor: grab; }
+    .door-handle-bg { fill: #fff7ed; stroke: #f97316; stroke-width: 2.5; }
+    .door-handle-t { font: 700 10px system-ui, sans-serif; text-anchor: middle; pointer-events: none; }
+    .wl { fill: none; stroke: #101418; stroke-width: 5; stroke-linecap: round; pointer-events: none; }
+    .wl.sel { stroke: #f97316; }
+    .wl.prev { stroke: #f59e0b; stroke-dasharray: 6 5; opacity: .8; }
+    .wl-hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; }
+    .gm-holder.draw { cursor: crosshair; }
+    .route-box { margin-top: 10px; padding: 10px 14px; border: 1px solid #fed7aa; background: #fff7ed; border-radius: 10px; font-size: 13px; color: #9a3412; }
+
+    /* ---- CAD floor-plan drawing (white sheet, black walls) ---- */
+    .sheet { fill: #ffffff; }
+    .wall { fill: none; stroke: #101418; stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }
+    .room { fill: #ffffff; stroke: #101418; stroke-width: 2.6; stroke-linejoin: round; transition: fill .15s; cursor: pointer; }
+    .room:hover { fill: #EAF5FD; }
+    .room.hl { fill: #3FB0E8; stroke: #0A5E9C; }
+    .room.start-r { stroke: #0E79C4; }
+    .room.muted { opacity: .5; }
+    .room-label { font: 700 11px/1.05 system-ui, sans-serif; fill: #101418; text-anchor: middle; pointer-events: none; letter-spacing: .2px; }
+    .room-label .sub { font-weight: 500; font-size: 8.5px; fill: #64748b; }
+    .door { fill: none; stroke: #101418; stroke-width: 1.4; }
+    .fix { fill: none; stroke: #101418; stroke-width: 1.2; }
+    .corridor-tag { font: 600 10px system-ui, sans-serif; fill: #94a3b8; letter-spacing: 3px; text-anchor: middle; pointer-events: none; }
+    .ground-cap { font: 700 13px system-ui, sans-serif; fill: #101418; letter-spacing: 1px; }
+    /* ---- route + draggable markers ---- */
+    .route-line { fill: none; stroke: #f97316; stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; stroke-dasharray: 2 9; }
+    .route-len { font: 700 11px system-ui, sans-serif; fill: #9a3412; }
+    .marker { cursor: grab; }
+    .marker.dragging { cursor: grabbing; }
+    .marker .mbody { stroke: #ffffff; stroke-width: 3; }
+    .marker .mtext { font: 800 13px system-ui, sans-serif; fill: #ffffff; text-anchor: middle; pointer-events: none; }
+
+    /* ---- interactive layout editor (drag/resize/draw walls) ---- */
+    .gm-subtoolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px;
+      padding: 9px 10px; border: 1px dashed #94a3b8; border-radius: 10px; background: #f8fafc; }
+    .gm-holder.draw { cursor: crosshair; }
+    rect.rh { fill: #ffffff; stroke: #0E79C4; stroke-width: 2; cursor: nwse-resize; }
+    .wl { fill: none; stroke: #1e293b; stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; cursor: pointer; }
+    .wl.sel { stroke: #0E79C4; }
+    .wl.prev { stroke: #94a3b8; stroke-dasharray: 6 4; pointer-events: none; }
+    circle.wp { fill: #ffffff; stroke: #0E79C4; stroke-width: 2.5; cursor: grab; }
+    .room-label .rno { font-weight: 800; font-size: 10.5px; fill: #0A5E9C; }
+
+    /* ---- legend + empty state ---- */
+    .gm-legend { display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; color: #475569; }
+    .gm-legend span { display: flex; align-items: center; gap: 8px; }
+    .lg-box { width: 16px; height: 16px; border: 2px solid #101418; border-radius: 4px; background: #fff; flex-shrink: 0; }
+    .lg-box.lg-dest { background: #3FB0E8; border-color: #0A5E9C; }
+    .lg-box.lg-corr { background: #f1f5f9; }
+    .gm-empty { font-size: 13px; color: #94a3b8; text-align: center; padding: 16px 0; }
+
+    /* ---- admin access list ---- */
+    .acc-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f1f5f9; }
+    .acc-row:last-child { border-bottom: 0; }
+    .acc-badge { font-size: 11px; font-weight: 700; color: #0A5E9C; background: #D8EDFB; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+    .acc-badge.no { color: #64748b; background: #f1f5f9; }
+    .a-meta { flex: 1; min-width: 0; }
+    .a-name { font-size: 13px; font-weight: 600; }
+    .a-sub { font-size: 11px; color: #94a3b8; }
+
+    /* ---- print: ONE WHOLE A4-LANDSCAPE bond-paper page for the guide map ----
+       style.css prints every sheet A4 portrait; this document overrides its own
+       @page to landscape (page-owned, other pages keep portrait) so the 1200x820
+       floor plan can fill the paper. Landscape content box:
+       297 - 4 - 4 = 289mm wide, 210 - 3 - 3 = 204mm tall. */
+    @media print {
+      @page { size: A4 landscape; margin: 3mm 4mm; }
+    }
+    .gm-p-sheet { width: 289mm; height: 204mm; margin: 0 auto;
+      display: flex; flex-direction: column; overflow: hidden;
+      page-break-inside: avoid; break-inside: avoid; }
+    .gm-p-head { flex: 0 0 auto; display: flex; align-items: flex-end; gap: 14px;
+      padding-bottom: 3px; border-bottom: 1.5px solid #0B5E9C; }
+    .gm-p-org { font-size: 12px; font-weight: 800; letter-spacing: .02em; color: #084573; }
+    .gm-p-title { font-size: 17px; font-weight: 800; color: #0A5E9C; line-height: 1.2; }
+    .gm-p-meta { margin-left: auto; font-size: 9.5px; color: #64748b; white-space: nowrap; }
+    .gm-p-map { flex: 1 1 auto; min-height: 0; position: relative;
+      margin-top: 4px; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
+    .gm-p-map > svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; transform: none; }
+    .gm-p-legend { flex: 0 0 auto; display: flex; gap: 16px; flex-wrap: wrap;
+      margin-top: 4px; font-size: 9.5px; line-height: 1.4; color: #334155; }
+    @media (max-width: 900px) {
+      .gm-wrap { grid-template-columns: minmax(0, 1fr); }
+      .gm-side { order: 2; }
+      .gm-map-card { order: 1; }
+      .gm-holder { height: 65vh; min-height: 360px; }
+    }
+    @media (max-width: 600px) {
+      .gm-map-card .card-body { padding: 10px; }
+      .gm-holder { height: 62vh; min-height: 320px; }
+    }
+  </style>
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script>
+  /* Floor plan — stylized REPRODUCTION of assets/images/guide.jpg (viewBox 1200x820).
+     Coordinates are plain numbers so geometry is easy to nudge closer to the photo. */
+  const VB_W = 1200, VB_H = 820;
+
+  const DEPTS = [
+    { id:"opd1",   name:"Consultation Room 1", no:"RM 101", icon:"⚕️", cat:"Outpatient",     x:310,  y:190, w:160, h:80,  door:"R" },
+    { id:"opd2",   name:"Consultation Room 2", no:"RM 102", icon:"⚕️", cat:"Outpatient",     x:480,  y:175, w:160, h:95,  door:"R" },
+    { id:"treat",  name:"Treatment Room",      no:"RM 103", icon:"💊", cat:"Outpatient",     x:375,  y:285, w:130, h:150, door:"R" },
+    { id:"immun",  name:"Immunization Room",   no:"RM 104", icon:"💉", cat:"Outpatient",     x:520,  y:285, w:120, h:150, door:"R" },
+    { id:"vitals", name:"Vital Signs",         no:"RM 105", icon:"💓", cat:"Outpatient",     x:310,  y:450, w:175, h:110, door:"R" },
+    { id:"cashier",name:"Cashier",             no:"RM 106", icon:"💰", cat:"Billing",        x:495,  y:450, w:145, h:110, door:"R" },
+    { id:"admit",  name:"Admitting",           no:"RM 107", icon:"🛏️", cat:"Admissions",     x:310,  y:575, w:175, h:110, door:"R" },
+    { id:"records",name:"Records",             no:"RM 108", icon:"🗂️", cat:"Administrative", x:495,  y:575, w:145, h:110, door:"R" },
+    { id:"lobby",  name:"Lobby",               no:"",       icon:"💺", cat:"Common",         x:652,  y:95,  w:76,  h:80,  door:null },
+    { id:"exit",   name:"Main Entrance",       no:"",       icon:"🚪", cat:"Common",         x:652,  y:700, w:76,  h:40,  door:null },
+    { id:"lab",    name:"Laboratory",          no:"RM 109", icon:"🔬", cat:"Laboratory",     x:745,  y:155, w:135, h:120, door:"L" },
+    { id:"xray",   name:"X-Ray",               no:"RM 110", icon:"📷", cat:"Imaging",        x:895,  y:155, w:115, h:120, door:"L" },
+    { id:"cr",     name:"Comfort Room",        no:"RM 111", icon:"🚻", cat:"Facilities",     x:745,  y:295, w:305, h:85,  door:"L" },
+    { id:"dial",   name:"Dialysis",            no:"RM 112", icon:"💧", cat:"Dialysis",       x:745,  y:400, w:305, h:70,  door:"L" },
+    { id:"waiting",name:"Waiting Area",        no:"RM 113", icon:"💺", cat:"Common",         x:745,  y:490, w:305, h:95,  door:"L" },
+    { id:"pharmacy",name:"Pharmacy",           no:"RM 114", icon:"💊", cat:"Pharmacy",       x:745,  y:605, w:130, h:80,  door:"L" },
+    { id:"er1",    name:"Emergency Room 1",    no:"RM 115", icon:"🚑", cat:"Emergency",      x:890,  y:595, w:160, h:38,  door:"L" },
+    { id:"er2",    name:"Emergency Room 2",    no:"RM 116", icon:"🚑", cat:"Emergency",      x:890,  y:633, w:160, h:38,  door:"L" },
+    { id:"er3",    name:"Emergency Room 3",    no:"RM 117", icon:"🚑", cat:"Emergency",      x:890,  y:671, w:160, h:44,  door:"L" }
+  ];
+  const allRooms = () => { const del = new Set(LAYOUT.deleted()); return DEPTS.filter((d) => !del.has(d.id)).concat(LAYOUT.boxes()); };
+  const deptById = (id) => allRooms().find((d) => d.id === id);
+  const isBox = (id) => LAYOUT.boxes().some((b) => b.id === id);
+
+  /* ------------------ GUIDE MAP STORE (admin rename + access) ------------------ */
+  const _clone = (o) => JSON.parse(JSON.stringify(o));
+  /* Baked-in DEFAULT guide map = the admin's saved layout + room renames.
+     Used whenever a browser has nothing stored yet, so the edited map is the
+     default on every fresh device / after clearing cache. */
+  const DEFAULT_GMAP = {
+    names: {
+      vitals:"Radiology", admit:"Emergency Room (ER)", records:"Triange",
+      cashier:"Laboratory", bxmv8y7l3u:"Yakap", immun:"Optha", opd1:"Comfort Room (CR)",
+      lab:"ENT Clinic", cr:"Clinic", dial:"Clinic", bxmv8y8zll:"Clinic",
+      bxmv8y827u:"Information", bxmv8y8tjt:"Admitting Section",
+      waiting:"Medical Records, HMO, Billing, Accounting"
+    },
+    editors: [],
+    nos: {
+      vitals:"", admit:"", records:"", cashier:"", bxmv8y7l3u:"", immun:"", opd1:"",
+      lab:"", cr:"RM 111", dial:"RM 112", bxmv8y8zll:"", bxmv8y827u:"", bxmv8y8tjt:"", waiting:"RM 113"
+    }
+  };
+  const GMAP_KEY = "rmc_guidemap_v1";
+  const GMAP = {
+    load() { const d = read(GMAP_KEY, null); return (d && typeof d === "object") ? d : _clone(DEFAULT_GMAP); },
+    save(d) { store(GMAP_KEY, d); },
+    names() { const n = this.load().names; return (n && typeof n === "object") ? n : {}; },
+    editors() { const e = this.load().editors; return Array.isArray(e) ? e : []; },
+    rename(id, name) { const d = this.load(); d.names = d.names || {}; d.names[id] = name; this.save(d); },
+    nos() { const n = this.load().nos; return (n && typeof n === "object") ? n : {}; },
+    setNo(id, no) { const d = this.load(); d.nos = d.nos || {}; d.nos[id] = no; this.save(d); },
+    reset() { this.save({ names:{}, nos:{}, editors: this.editors() }); },
+    setEditor(role, on) { const d = this.load(); const s = new Set(this.editors()); if (on) s.add(role); else s.delete(role); d.editors = [...s]; d.names = d.names || {}; this.save(d); },
+    canEdit() {
+      const s = DB.session();
+      if (!s) return false;
+      if (s.role === "superadmin") return true;
+      return this.editors().includes(s.role);
+    }
+  };
+  const deptName = (d) => (GMAP.names()[d.id] || d.name);
+  // Effective room number: admin override if present (even blank), else the default.
+  const roomNo = (d) => (d.id in GMAP.nos()) ? GMAP.nos()[d.id] : (d.no || "");
+  /* ================= SVG HELPERS ================= */
+  const NS = "http://www.w3.org/2000/svg";
+  function svgEl(tag, attrs, parent) {
+    const n = document.createElementNS(NS, tag);
+    if (attrs) for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  const pt = (x, y) => x.toFixed(1) + "," + y.toFixed(1);
+
+  /* ================= LAYOUT STORE (editable geometry) =================
+     Admin drag/resize/draw overrides live here, persisted separately from
+     GMAP names so geometry reset never wipes renames. */
+  const ENTRANCES = [
+    { id:"__south", name:"Patient Entrance (South)", short:"South Entrance", icon:"\u{1F6B6}", dot:{ x:696, y:786 } },
+    { id:"__north", name:"Main Entrance (North)", short:"North Entrance", icon:"\u{1F6AA}", dot:{ x:697, y:48 } }
+  ];
+  const entranceById = (id) => ENTRANCES.find((e) => e.id === id) || ENTRANCES[0];
+  /* Baked-in DEFAULT geometry = the admin's saved drag/resize/boxes/doors.
+     Falls back to this on a fresh load (nothing stored). */
+  const DEFAULT_LAYOUT = {
+    rooms: {
+      pharmacy:{x:745,y:640,w:135,h:95}, records:{x:490,y:615,w:145,h:120},
+      admit:{x:310,y:575,w:130,h:165}, vitals:{x:310,y:270,w:130,h:305},
+      immun:{x:555,y:270,w:85,h:170}, bxmv8y7l3u:{x:490,y:295,w:65,h:145},
+      cashier:{x:485,y:475,w:110,h:140}, bxmv8y827u:{x:595,y:525,w:40,h:90},
+      waiting:{x:835,y:510,w:215,h:95}, bxmv8y8tjt:{x:745,y:510,w:95,h:95},
+      bxmv8y8zll:{x:880,y:645,w:165,h:90}, lab:{x:745,y:155,w:305,h:90},
+      cr:{x:745,y:245,w:305,h:55}, dial:{x:745,y:345,w:305,h:60},
+      bxmv8yb5o0:{x:985,y:405,w:65,h:100}, bxmv8ybfc0:{x:855,y:410,w:140,h:70},
+      opd2:{x:470,y:175,w:180,h:40}, bxmv8ygana:{x:475,y:170,w:165,h:55}
+    },
+    walls: [],
+    cols: { dial:3, cr:3, bxmv8y8zll:3 },
+    rows: {},
+    boxes: [
+      {id:"bxmv8y7l3u",name:"New Room",no:"",icon:"🚪",cat:"Custom",x:625,y:480,w:140,h:70,door:"L"},
+      {id:"bxmv8y827u",name:"New Room",no:"",icon:"🚪",cat:"Custom",x:625,y:480,w:140,h:70,door:"L"},
+      {id:"bxmv8y8tjt",name:"New Room",no:"",icon:"🚪",cat:"Custom",x:625,y:480,w:140,h:70,door:"L"},
+      {id:"bxmv8y8zll",name:"New Room",no:"",icon:"🚪",cat:"Custom",x:625,y:480,w:140,h:70,door:"L"},
+      {id:"bxmv8yb5o0",name:"New Room",no:"",icon:"🚪",cat:"Custom",x:625,y:480,w:140,h:70,door:"L"},
+      {id:"bxmv8ygana",name:"New Room",no:"",icon:"🚪",cat:"Custom",x:625,y:480,w:140,h:70,door:"L"}
+    ],
+    ways: [],
+    chairs: [ {x:750,y:425,rows:5}, {x:860,y:425,rows:5} ],
+    colNames: { cr:{}, dial:{}, bxmv8y8zll:{}, waiting:{} },
+    colNos: { cr:{}, dial:{}, bxmv8y8zll:{}, waiting:{} },
+    doors: {
+      cashier:{edge:"T",t:0.5150304241213327}, bxmv8y827u:{edge:"R",t:0.5895307784656072},
+      records:{edge:"L",t:0.8135160089220511}, vitals:{edge:"R",t:0.47470769327556905},
+      bxmv8y8zll:{edge:"T",t:0.43544334453425343}, waiting:{edge:"T",t:0.40408428780521805},
+      bxmv8y8tjt:{edge:"T",t:0.46117040853882946}, dial:{edge:"T",t:0.48559637084227264},
+      cr:{edge:"B",t:0.4816658751084981}
+    },
+    deleted: ["er1","er2","er3","treat","xray","opd2"]
+  };
+  const LAYOUT_KEY = "rmc_guidemap_layout_v1";
+  const LAYOUT = {
+    load() {
+      const d = read(LAYOUT_KEY, null);
+      const src = (d && typeof d === "object") ? d : _clone(DEFAULT_LAYOUT);
+      return {
+        rooms:(src.rooms && typeof src.rooms === "object") ? src.rooms : {},
+        walls:Array.isArray(src.walls) ? src.walls : [],
+        cols:(src.cols && typeof src.cols === "object") ? src.cols : {},
+        rows:(src.rows && typeof src.rows === "object") ? src.rows : {},
+        boxes:Array.isArray(src.boxes) ? src.boxes : [],
+        ways:Array.isArray(src.ways) ? src.ways : [],
+        chairs:Array.isArray(src.chairs) ? src.chairs : [],
+        colNames:(src.colNames && typeof src.colNames === "object") ? src.colNames : {},
+        colNos:(src.colNos && typeof src.colNos === "object") ? src.colNos : {},
+        doors:(src.doors && typeof src.doors === "object") ? src.doors : {},
+        deleted:Array.isArray(src.deleted) ? src.deleted : []
+      };
+    },
+    save(d) { store(LAYOUT_KEY, d); },
+    rooms() { const r = this.load().rooms; return (r && typeof r === "object") ? r : {}; },
+    walls() { const w = this.load().walls; return Array.isArray(w) ? w : []; },
+    setRoom(id, g) { const d = this.load(); d.rooms = d.rooms || {}; d.rooms[id] = { x:Math.round(g.x), y:Math.round(g.y), w:Math.round(g.w), h:Math.round(g.h) }; this.save(d); },
+    clearRoom(id) { const d = this.load(); if (d.rooms) delete d.rooms[id]; this.save(d); },
+    addWall(wseg) { const d = this.load(); d.walls = d.walls || []; d.walls.push({ x1:Math.round(wseg.x1), y1:Math.round(wseg.y1), x2:Math.round(wseg.x2), y2:Math.round(wseg.y2) }); this.save(d); },
+    delWall(i) { const d = this.load(); if (Array.isArray(d.walls)) d.walls.splice(i, 1); this.save(d); },
+    setCols(id, n) { const d = this.load(); d.cols = d.cols || {}; if (n <= 1) delete d.cols[id]; else d.cols[id] = n; this.save(d); },
+    cols() { const c = this.load().cols; return (c && typeof c === "object") ? c : {}; },
+    setRows(id, n) { const d = this.load(); d.rows = d.rows || {}; if (n <= 1) delete d.rows[id]; else d.rows[id] = n; this.save(d); },
+    rows() { const r = this.load().rows; return (r && typeof r === "object") ? r : {}; },
+    boxes() { const b = this.load().boxes; return Array.isArray(b) ? b : []; },
+    addBox(b) { const d = this.load(); d.boxes = d.boxes || []; d.boxes.push(b); this.save(d); },
+    delBox(i) { const d = this.load(); if (Array.isArray(d.boxes)) d.boxes.splice(i, 1); this.save(d); },
+    ways() { const w = this.load().ways; return Array.isArray(w) ? w : []; },
+    setWays(arr) { const d = this.load(); d.ways = arr; this.save(d); },
+    chairs() { const c = this.load().chairs; return Array.isArray(c) ? c : []; },
+    setChairs(arr) { const d = this.load(); d.chairs = arr; this.save(d); },
+    setBoxes(arr) { const d = this.load(); d.boxes = arr; this.save(d); },
+    colNames() { const c = this.load().colNames; return (c && typeof c === "object") ? c : {}; },
+    setColName(id, i, name) { const d = this.load(); d.colNames = d.colNames || {}; d.colNames[id] = d.colNames[id] || {}; if (name) d.colNames[id][i] = name; else delete d.colNames[id][i]; this.save(d); },
+    colNos() { const c = this.load().colNos; return (c && typeof c === "object") ? c : {}; },
+    setColNo(id, i, no) { const d = this.load(); d.colNos = d.colNos || {}; d.colNos[id] = d.colNos[id] || {}; if (no) d.colNos[id][i] = no; else delete d.colNos[id][i]; this.save(d); },
+    deleted() { const x = this.load().deleted; return Array.isArray(x) ? x : []; },
+    delRoom(id) { const d = this.load(); d.deleted = Array.isArray(d.deleted) ? d.deleted : []; if (!d.deleted.includes(id)) d.deleted.push(id); this.save(d); },
+    // Door position override: { edge:"R"|"L"|"T"|"B", t:0..1 }. t is the fraction along that edge.
+    doors() { const x = this.load().doors; return (x && typeof x === "object") ? x : {}; },
+    setDoor(id, edge, t) { const d = this.load(); d.doors = d.doors || {}; d.doors[id] = { edge:edge, t:Math.min(0.92, Math.max(0.08, +t || 0.5)) }; this.save(d); },
+    clearDoor(id) { const d = this.load(); if (d.doors) delete d.doors[id]; this.save(d); },
+    resetGeo() { const d = this.load(); d.rooms = {}; d.walls = []; d.deleted = []; d.doors = {}; this.save(d); }
+  };
+  // Effective geometry: DEPTS default merged with LAYOUT override.
+  function geom(d) {
+    const o = LAYOUT.rooms()[d.id];
+    if (!o) return { x:d.x, y:d.y, w:d.w, h:d.h };
+    const n = (v, fb) => (typeof v === "number" && isFinite(v) ? v : fb);
+    return { x:n(o.x,d.x), y:n(o.y,d.y), w:Math.max(24,n(o.w,d.w)), h:Math.max(18,n(o.h,d.h)) };
+  }
+
+  /* ================= BASE GEOMETRY traced from assets/images/guide.jpg ================
+     Outer silhouette (thick walls): sloped top-left roof, protruding top entrance
+     tower with double doors, straight right edge, stepped bottom-left, bottom
+     entrance with double doors + steps. Central corridor x 640..745.
+     viewBox 1200x820. GRID=5 for snap. */
+  const GRID = 5;
+  const CORR = { x1:640, x2:745 };
+  const snap = (v) => Math.round(v / GRID) * GRID;
+  // Main outer wall, split into segments so entrances stay as door gaps.
+  const WALLS_BASE = [
+    "M336,157 L664,222",            // sloped top-left roof
+    "M664,222 L666,95",             // tower left edge
+    "M666,95 L686,95",              // tower top, left of top doors
+    "M708,95 L728,95",              // tower top, right of top doors
+    "M728,95 L728,159 L1050,159",   // tower right edge + top-right wall
+    "M1050,159 L1050,738",          // right edge
+    "M1050,738 L728,738",           // bottom, right of entrance
+    "M664,738 L312,738",            // bottom, left of entrance
+    "M312,738 L312,241 L336,241 L336,157"  // left edge + step to roof corner
+  ];
+  // Door arc helper: gap + quarter-circle swing on the room's door edge.
+  // Uses the effective door anchor (doorPoint) so it follows admin drags.
+  function doorPath(d, g) {
+    const p = doorPoint(d, g);
+    if (!p) return "";
+    const l = Math.min(g.w, g.h) * 0.32;
+    if (p.edge === "R") return "M" + pt(g.x + g.w, p.y - l / 2) + " L" + pt(g.x + g.w, p.y + l / 2) + " M" + pt(g.x + g.w, p.y + l / 2) + " A" + l + "," + l + " 0 0 0 " + pt(g.x + g.w - l, p.y + l / 2);
+    if (p.edge === "L") return "M" + pt(g.x, p.y - l / 2) + " L" + pt(g.x, p.y + l / 2) + " M" + pt(g.x, p.y + l / 2) + " A" + l + "," + l + " 0 0 1 " + pt(g.x + l, p.y + l / 2);
+    if (p.edge === "T") return "M" + pt(p.x - l / 2, g.y) + " L" + pt(p.x + l / 2, g.y) + " M" + pt(p.x + l / 2, g.y) + " A" + l + "," + l + " 0 0 1 " + pt(p.x + l / 2, g.y + l);
+    if (p.edge === "B") return "M" + pt(p.x - l / 2, g.y + g.h) + " L" + pt(p.x + l / 2, g.y + g.h) + " M" + pt(p.x + l / 2, g.y + g.h) + " A" + l + "," + l + " 0 0 0 " + pt(p.x + l / 2, g.y + g.h - l);
+    return "";
+  }
+
+  /* ============ ROUTING (A* grid that avoids all walls: base + drawn) ============ */
+  const CORR_X = (CORR.x1 + CORR.x2) / 2;
+  const A_STEP = 5, A_COLS = Math.ceil(VB_W / A_STEP), A_ROWS = Math.ceil(VB_H / A_STEP);
+  const aIdx = (cx, cy) => cy * A_COLS + cx;
+  const cellOf = (p) => ({ cx:Math.max(0, Math.min(A_COLS - 1, Math.floor(p.x / A_STEP))), cy:Math.max(0, Math.min(A_ROWS - 1, Math.floor(p.y / A_STEP))) });
+  // Turn every wall (structural base paths + admin-drawn segments) into line segments.
+  function parseWallSegs() {
+    const segs = [];
+    WALLS_BASE.forEach((dstr) => {
+      const ps = []; const re = /(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g; let m;
+      while ((m = re.exec(dstr))) ps.push({ x:+m[1], y:+m[2] });
+      for (let i = 1; i < ps.length; i++) segs.push([ps[i - 1], ps[i]]);
+    });
+    LAYOUT.walls().forEach((w) => segs.push([{ x:w.x1, y:w.y1 }, { x:w.x2, y:w.y2 }]));
+    return segs;
+  }
+  function distSeg(px, py, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
+    let t = L2 ? ((px - a.x) * dx + (py - a.y) * dy) / L2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
+  }
+  // Split walls into structural (base perimeter) vs admin-drawn lines so each can
+  // carry its own clearance. parseWallSegs() stays as the flat combined list.
+  function wallSegs() {
+    const structural = [];
+    WALLS_BASE.forEach((dstr) => {
+      const ps = []; const re = /(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g; let m;
+      while ((m = re.exec(dstr))) ps.push({ x:+m[1], y:+m[2] });
+      for (let i = 1; i < ps.length; i++) structural.push([ps[i - 1], ps[i]]);
+    });
+    const drawn = LAYOUT.walls().map((w) => [{ x:w.x1, y:w.y1 }, { x:w.x2, y:w.y2 }]);
+    return { structural, drawn };
+  }
+  // Mark cells within `clearance` of any segment as impassable (in place).
+  function markBlocked(blocked, segs, clearance) {
+    segs.forEach((sg) => {
+      const a = sg[0], b = sg[1];
+      const minX = Math.max(0, Math.floor((Math.min(a.x, b.x) - clearance) / A_STEP));
+      const maxX = Math.min(A_COLS - 1, Math.ceil((Math.max(a.x, b.x) + clearance) / A_STEP));
+      const minY = Math.max(0, Math.floor((Math.min(a.y, b.y) - clearance) / A_STEP));
+      const maxY = Math.min(A_ROWS - 1, Math.ceil((Math.max(a.y, b.y) + clearance) / A_STEP));
+      for (let cy = minY; cy <= maxY; cy++) for (let cx = minX; cx <= maxX; cx++) {
+        if (distSeg(cx * A_STEP + A_STEP / 2, cy * A_STEP + A_STEP / 2, a, b) <= clearance) blocked[aIdx(cx, cy)] = 1;
+      }
+    });
+  }
+  // Combined blocked grid: structural walls keep a 7px gap (door gaps stay open);
+  // admin-drawn lines get a wider 12px buffer so the arrow visibly steers clear;
+  // room/box interiors are solid so the route stays in corridors (no shortcuts).
+  function buildBlocked() {
+    const blocked = new Uint8Array(A_COLS * A_ROWS);
+    const ws = wallSegs();
+    markBlocked(blocked, ws.structural, 7);
+    markBlocked(blocked, ws.drawn, 12);
+    // Enclosed rooms/boxes (those with a door) are solid so the route stays in corridors.
+    // Open halls with no door (lobby, entrance) stay walkable so entrances aren't sealed.
+    allRooms().forEach((d) => { if (d.door) blockRect(blocked, geom(d), 2); });
+    return blocked;
+  }
+  // Mark every cell whose CENTRE lies inside a room/box (plus `c` px) as impassable.
+  // (Checking the centre — not the bounding box — avoids over-blocking the corridor.)
+  function blockRect(blocked, g, c) {
+    const x0 = g.x - c, x1 = g.x + g.w + c, y0 = g.y - c, y1 = g.y + g.h + c;
+    const minX = Math.max(0, Math.floor(x0 / A_STEP));
+    const maxX = Math.min(A_COLS - 1, Math.ceil(x1 / A_STEP));
+    const minY = Math.max(0, Math.floor(y0 / A_STEP));
+    const maxY = Math.min(A_ROWS - 1, Math.ceil(y1 / A_STEP));
+    for (let cy = minY; cy <= maxY; cy++) for (let cx = minX; cx <= maxX; cx++) {
+      const ccx = cx * A_STEP + A_STEP / 2, ccy = cy * A_STEP + A_STEP / 2;
+      if (ccx >= x0 && ccx <= x1 && ccy >= y0 && ccy <= y1) blocked[aIdx(cx, cy)] = 1;
+    }
+  }
+  // Carve a passable window of radius `r` around a point (a door / start / waypoint).
+  function openWindow(blocked, px, py, r) {
+    const minX = Math.max(0, Math.floor((px - r) / A_STEP));
+    const maxX = Math.min(A_COLS - 1, Math.ceil((px + r) / A_STEP));
+    const minY = Math.max(0, Math.floor((py - r) / A_STEP));
+    const maxY = Math.min(A_ROWS - 1, Math.ceil((py + r) / A_STEP));
+    for (let cy = minY; cy <= maxY; cy++) for (let cx = minX; cx <= maxX; cx++) blocked[aIdx(cx, cy)] = 0;
+  }
+  function heapPush(h, it) { h.push(it); let i = h.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (h[p][0] <= h[i][0]) break; const t = h[p]; h[p] = h[i]; h[i] = t; i = p; } }
+  function heapPop(h) { const top = h[0]; const last = h.pop(); if (h.length) { h[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let s = i; if (l < h.length && h[l][0] < h[s][0]) s = l; if (r < h.length && h[r][0] < h[s][0]) s = r; if (s === i) break; const t = h[s]; h[s] = h[i]; h[i] = t; i = s; } } return top; }
+  function astar(blocked, s, t) {
+    const sc = cellOf(s), tc = cellOf(t), N = A_COLS * A_ROWS;
+    // If the goal cell sits inside a wall buffer (door next to a line), widen to the
+    // nearest free cell so the path still reaches a clear spot instead of cutting a corner.
+    if (blocked[aIdx(tc.cx, tc.cy)]) {
+      let best = null, bestD = Infinity;
+      for (let r = 1; r <= 3 && !best; r++)
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          const nx = tc.cx + dx, ny = tc.cy + dy;
+          if (nx < 0 || ny < 0 || nx >= A_COLS || ny >= A_ROWS) continue;
+          if (blocked[aIdx(nx, ny)]) continue;
+          const d = dx * dx + dy * dy;
+          if (d < bestD) { bestD = d; best = { cx:nx, cy:ny }; }
+        }
+      if (best) { tc.cx = best.cx; tc.cy = best.cy; }
+    }
+    const start = aIdx(sc.cx, sc.cy), goal = aIdx(tc.cx, tc.cy);
+    const g = new Float64Array(N).fill(Infinity), from = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
+    const hh = (idx) => Math.hypot((idx % A_COLS) - tc.cx, ((idx / A_COLS) | 0) - tc.cy);
+    const open = []; g[start] = 0; heapPush(open, [hh(start), start]);
+    const dirs = [[1,0,1],[-1,0,1],[0,1,1],[0,-1,1],[1,1,1.4142],[1,-1,1.4142],[-1,1,1.4142],[-1,-1,1.4142]];
+    while (open.length) {
+      const idx = heapPop(open)[1];
+      if (closed[idx]) continue; closed[idx] = 1;
+      if (idx === goal) break;
+      const cx = idx % A_COLS, cy = (idx / A_COLS) | 0;
+      for (let k = 0; k < 8; k++) {
+        const dx = dirs[k][0], dy = dirs[k][1], cost = dirs[k][2];
+        const nx = cx + dx, ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= A_COLS || ny >= A_ROWS) continue;
+        const ni = aIdx(nx, ny);
+        if (blocked[ni] && ni !== goal && ni !== start) continue;           // don't cross walls
+        if (dx && dy && (blocked[aIdx(cx, ny)] || blocked[aIdx(nx, cy)])) continue; // no corner cutting
+        const ng = g[idx] + cost;
+        if (ng < g[ni]) { g[ni] = ng; from[ni] = idx; heapPush(open, [ng + hh(ni), ni]); }
+      }
+    }
+    if (from[goal] === -1 && goal !== start) return null;
+    const cells = []; let cur = goal; while (cur !== -1) { cells.push(cur); cur = from[cur]; } cells.reverse();
+    return cells.map((i) => ({ x:(i % A_COLS) * A_STEP + A_STEP / 2, y:((i / A_COLS) | 0) * A_STEP + A_STEP / 2 }));
+  }
+  function simplify(pts) {
+    if (pts.length <= 2) return pts;
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = out[out.length - 1], b = pts[i], c = pts[i + 1];
+      if (Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) > 0.6) out.push(b);
+    }
+    out.push(pts[pts.length - 1]); return out;
+  }
+  function legPath(blocked, a, b) {
+    const cells = astar(blocked, a, b);
+    if (!cells || !cells.length) return [a, b]; // no path -> straight fallback
+    cells[0] = { x:a.x, y:a.y }; cells[cells.length - 1] = { x:b.x, y:b.y };
+    return cells;
+  }
+  const isEntrance = (id) => ENTRANCES.some((e) => e.id === id);
+  // Door anchor on a room's edge — where the guided arrow ends (never crossing a wall)
+  // and where a clickable/draggable door icon sits. null => the room has no door.
+  // Honours an admin override { edge, t }; otherwise uses the room's default side (R/L).
+  function doorPoint(d, g) {
+    const dv = LAYOUT.doors()[d.id];
+    let edge, t;
+    if (dv && dv.edge) { edge = dv.edge; t = (typeof dv.t === "number") ? dv.t : 0.5; }
+    else if (d.door === "R" || d.door === "L" || d.door === "T" || d.door === "B") { edge = d.door; t = 0.5; }
+    else return null;
+    t = Math.min(0.92, Math.max(0.08, t));
+    if (edge === "R") return { x: g.x + g.w, y: g.y + t * g.h, edge:edge, t:t };
+    if (edge === "L") return { x: g.x, y: g.y + t * g.h, edge:edge, t:t };
+    if (edge === "T") return { x: g.x + t * g.w, y: g.y, edge:edge, t:t };
+    if (edge === "B") return { x: g.x + t * g.w, y: g.y + g.h, edge:edge, t:t };
+    return null;
+  }
+  // Resolve a dragged pointer position to the nearest room edge + fraction along it.
+  function doorFromPoint(d, g, p) {
+    const edges = [
+      { edge:"R", dist: Math.abs(p.x - (g.x + g.w)) },
+      { edge:"L", dist: Math.abs(p.x - g.x) },
+      { edge:"T", dist: Math.abs(p.y - g.y) },
+      { edge:"B", dist: Math.abs(p.y - (g.y + g.h)) }
+    ];
+    edges.sort((a, b) => a.dist - b.dist);
+    const e = edges[0].edge;
+    let t = (e === "R" || e === "L") ? (p.y - g.y) / g.h : (p.x - g.x) / g.w;
+    return { edge:e, t: Math.min(0.92, Math.max(0.08, t || 0)) };
+  }
+  function startPoint(id) {
+    const en = ENTRANCES.find((e) => e.id === id);
+    if (en) return { x:en.dot.x, y:en.dot.y };
+    const d = deptById(id);
+    if (d) { const g = geom(d); return { x:g.x + g.w / 2, y:g.y + g.h / 2 }; }
+    return { x:CORR_X, y:400 };
+  }
+  function startLabel(id) {
+    const en = ENTRANCES.find((e) => e.id === id);
+    if (en) return en.short;
+    const d = deptById(id);
+    return d ? deptName(d) : "Entrance";
+  }
+  // Path = A* from start through any manual waypoints to the door, ending AT the door
+  // (no centre hop) so the arrow never crosses a wall. Rooms with no door route to centre.
+  function routePoints(id) {
+    const d = deptById(id);
+    if (!d) return [startPoint(startId)];
+    const g = geom(d);
+    const dp = doorPoint(d, g);
+    const target = dp || { x: g.x + g.w / 2, y: g.y + g.h / 2 };
+    const blocked = buildBlocked();
+    // Open the start, any manual waypoints, and (if present) the destination door so
+    // the route can reach them — rooms stay solid everywhere else.
+    const sp = startPoint(startId);
+    const ways = LAYOUT.ways().filter((w) => w && isFinite(w.x) && isFinite(w.y)).map((w) => ({ x:w.x, y:w.y }));
+    openWindow(blocked, sp.x, sp.y, 13);
+    ways.forEach((w) => openWindow(blocked, w.x, w.y, 13));
+    if (dp) openWindow(blocked, dp.x, dp.y, 13);
+    const via = [sp].concat(ways).concat([target]);
+    const pts = [];
+    for (let i = 0; i < via.length - 1; i++) {
+      const leg = legPath(blocked, via[i], via[i + 1]);
+      for (let j = 0; j < leg.length; j++) { if (i > 0 && j === 0) continue; pts.push(leg[j]); }
+    }
+    return simplify(pts);
+  }
+  let _rtCache = { key:null, val:null };
+  function routeTo(id) {
+    const d = deptById(id);
+    if (!d) return { path:"", points:[], meters:0 };
+    const g = geom(d);
+    const key = [id, startId, JSON.stringify(LAYOUT.walls()), JSON.stringify(LAYOUT.ways()), JSON.stringify(LAYOUT.rooms()), JSON.stringify(LAYOUT.boxes()), JSON.stringify(LAYOUT.doors()), JSON.stringify(LAYOUT.deleted()), Math.round(g.x), Math.round(g.y), Math.round(g.w), Math.round(g.h)].join("|");
+    if (_rtCache.key === key) return _rtCache.val;
+    const pts = routePoints(id);
+    let len = 0; for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    const val = { path:"M" + pts.map((q) => pt(q.x, q.y)).join(" L"), points:pts, meters:Math.max(3, Math.round(len / 18)) };
+    _rtCache = { key:key, val:val };
+    return val;
+  }
+  /* ================= PAGE STATE ================= */
+  let selId = null, startId = "__south", destId = null;
+  let editOn = false, selWay = -1, selChair = -1, selBox = -1, selWall = -1, drawWallMode = false, drawPreview = null, query = "";
+  let svg = null, holder = null, zoom = 1, panX = 0, panY = 0, justPanned = false;
+
+  const centerOf = (g) => ({ x:g.x + g.w / 2, y:g.y + g.h / 2 });
+  function shortName(d) { return deptName(d).replace(/^Emergency Room /, "ER ").replace(/^Consultation Room /, "Consult "); }
+  // Word-wrap a room name into lines fitting `maxChars`. Over-long single words are
+  // chunked so nothing overflows the room box (e.g. a very long department name).
+  function wrapName(name, maxChars) {
+    const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return [""];
+    const maxC = Math.max(3, maxChars);
+    const lines = [];
+    let cur = "";
+    const chunk = (w) => { while (w.length > maxC) { lines.push(w.slice(0, maxC)); w = w.slice(maxC); } return w; };
+    for (const w of words) {
+      if (w.length > maxC) { if (cur) { lines.push(cur); cur = ""; } cur = chunk(w); }
+      else if (!cur) cur = w;
+      else if ((cur + " " + w).length <= maxC) cur += " " + w;
+      else { lines.push(cur); cur = w; }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  // Fit a name to a box width: shrink the font so the longest word fits one line,
+  // then wrap. Returns { lines, fs, lh }.
+  function fitName(name, availW, baseFs) {
+    const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+    const longest = words.reduce((m, w) => Math.max(m, w.length), 0) || 1;
+    const fs = Math.max(7, Math.min(baseFs, availW / (longest * 0.58)));
+    const maxChars = Math.max(3, Math.floor(availW / (fs * 0.58)));
+    return { lines: wrapName(name, maxChars), fs, lh: fs + 1.5 };
+  }
+  function roomMatches(d, q) {
+    q = (q || "").trim().toLowerCase();
+    if (!q) return true;
+    return (deptName(d) + " " + roomNo(d) + " " + d.cat + " " + d.id).toLowerCase().includes(q);
+  }
+
+  /* ================= DRAW MAP ================= */
+  function drawMap() {
+    if (!svg) return;
+    svg.innerHTML = "";
+    const clip = svgEl("clipPath", { id:"gmClip" }, svg);
+    svgEl("rect", { x:0, y:0, width:VB_W, height:VB_H, rx:0 }, clip);
+    const root = svgEl("g", { "clip-path":"url(#gmClip)" }, svg);
+    const sheet = svgEl("rect", { x:0, y:0, width:VB_W, height:VB_H, class:"sheet" }, root);
+    sheet.addEventListener("click", (e) => { e.stopPropagation(); if (editOn && !drawWallMode) { selId = null; selWall = -1; selWay = -1; selChair = -1; drawMap(); syncCols(); } });
+
+    // central corridor band
+    svgEl("rect", { x:CORR.x1, y:200, width:(CORR.x2 - CORR.x1), height:538, fill:"#f1f5f9" }, root);
+    const ctag = svgEl("text", { x:(CORR.x1 + CORR.x2) / 2, y:520, class:"corridor-tag",
+      transform:"rotate(-90 " + ((CORR.x1 + CORR.x2) / 2) + " 520)" }, root);
+    ctag.textContent = "CORRIDOR";
+
+    // rooms + door swings + labels (name / room number / category)
+    const gR = svgEl("g", {}, root);
+    allRooms().forEach((d) => {
+      const g = geom(d);
+      const cls = "room" + (d.id === destId ? " hl" : "") + (d.id === startId ? " start-r" : "") +
+        ((!roomMatches(d, query)) ? " muted" : "");
+      const r = svgEl("rect", { x:g.x, y:g.y, width:g.w, height:g.h, rx:2, class:cls, "data-id":d.id }, gR);
+      r.addEventListener("click", (e) => { e.stopPropagation(); onRoomClick(d.id); });
+      renderCols(gR, d, g);
+      r.addEventListener("pointerdown", (e) => { if (editOn) beginMove(e, d); });
+      const dp = doorPath(d, g);
+      if (dp) svgEl("path", { d:dp, class:"door" }, gR);
+      const cx = g.x + g.w / 2;
+      const rno = roomNo(d);
+      const hasGrid = (LAYOUT.cols()[d.id] || 1) > 1 || (LAYOUT.rows()[d.id] || 1) > 1;
+      if (hasGrid) {
+        // Room name sits at the top (wrapped + shrunk to fit); each grid cell shows its number + name.
+        const fit = fitName(shortName(d), Math.max(14, g.w - 8), 10);
+        const t = svgEl("text", { x:cx, y:(g.y + fit.fs + 3).toFixed(1), class:"room-label" }, gR);
+        let first = true;
+        fit.lines.forEach((ln) => {
+          const s = svgEl("tspan", { x:cx, dy: first ? "0" : fit.lh.toFixed(1), class:"" }, t);
+          s.setAttribute("style", "font-size:" + fit.fs.toFixed(1) + "px");
+          s.textContent = ln;
+          first = false;
+        });
+      } else {
+        // Centred block: wrapped name (shrink-to-fit) + room number + category.
+        const baseFs = g.h >= 64 ? 11.5 : g.h >= 40 ? 11 : g.h >= 28 ? 10 : 9;
+        const fit = fitName(shortName(d), Math.max(14, g.w - 8), baseFs);
+        const rows = [];
+        fit.lines.forEach((ln) => rows.push({ txt: ln, fs: fit.fs, cls: "" }));
+        if (rno) rows.push({ txt: rno, fs: Math.max(7, fit.fs - 1.5), cls: "rno" });
+        if (d.cat && g.h >= 40) rows.push({ txt: d.cat, fs: Math.max(7, fit.fs - 3), cls: "sub" });
+        const heights = rows.map((r) => r.fs + 1.5);
+        const blockH = heights.reduce((a, b) => a + b, 0);
+        const scale = (blockH > g.h - 3) ? Math.max(0.55, (g.h - 3) / blockH) : 1;
+        const startY = g.y + g.h / 2 - (blockH * scale) / 2 + rows[0].fs * scale * 0.85;
+        const t = svgEl("text", { x:cx, y:startY.toFixed(1), class:"room-label" }, gR);
+        let first = true;
+        rows.forEach((r, i) => {
+          const s = svgEl("tspan", { x:cx, dy: first ? "0" : (heights[i] * scale).toFixed(1), class: r.cls }, t);
+          s.setAttribute("style", "font-size:" + (r.fs * scale).toFixed(1) + "px");
+          s.textContent = r.txt;
+          first = false;
+        });
+      }
+    });
+    // thick structural walls (base) + admin-drawn walls
+    const gW = svgEl("g", {}, root);
+    WALLS_BASE.forEach((dstr) => svgEl("path", { d:dstr, class:"wall" }, gW));
+    LAYOUT.walls().forEach((wseg, i) => {
+      const dstr = "M" + pt(wseg.x1, wseg.y1) + " L" + pt(wseg.x2, wseg.y2);
+      const hit = svgEl("path", { d:dstr, class:"wl-hit", "data-w":i }, gW);
+      hit.addEventListener("click", (e) => { e.stopPropagation(); if (editOn && !drawWallMode) { selWall = i; selId = null; selWay = -1; selChair = -1; drawMap(); } });
+      svgEl("path", { d:dstr, class:("wl" + (i === selWall ? " sel" : "")) }, gW);
+      if (editOn && i === selWall) {
+        [["a", wseg.x1, wseg.y1], ["b", wseg.x2, wseg.y2]].forEach((ep) => {
+          const c = svgEl("circle", { cx:ep[1], cy:ep[2], r:8, class:"way-pt" }, gW);
+          c.addEventListener("pointerdown", (e) => { e.stopPropagation(); beginWallEndDrag(e, ep[0]); });
+        });
+      }
+    });
+    
+    if (drawPreview) svgEl("path", { d:drawPreview, class:"wl prev" }, gW);
+
+    // entrance double doors (top tower + bottom)
+    const dd = (cx, y, wdt) => {
+      const gg = svgEl("g", {}, root);
+      svgEl("path", { d:"M" + pt(cx - wdt/2, y) + " A" + wdt/2 + "," + wdt/2 + " 0 0 1 " + pt(cx, y), class:"door" }, gg);
+      svgEl("path", { d:"M" + pt(cx + wdt/2, y) + " A" + wdt/2 + "," + wdt/2 + " 0 0 0 " + pt(cx, y), class:"door" }, gg);
+    };
+    dd(697, 95, 22);
+    dd(696, 738, 64);
+
+    const cap = svgEl("text", { x:300, y:792, class:"ground-cap" }, root);
+    cap.textContent = "GROUND FLOOR";
+
+    // entrance flags (tap to set patient start)
+    ENTRANCES.forEach((en) => {
+      const fg = svgEl("g", { class:"ent-flag", transform:"translate(" + en.dot.x + "," + en.dot.y + ")" }, root);
+      svgEl("circle", { r:11, fill:(en.id === startId ? "#0E79C4" : "#fff"), stroke:"#0E79C4", "stroke-width":2.5 }, fg);
+      const ft = svgEl("text", { y:4, class:"mtext", fill:(en.id === startId ? "#fff" : "#0E79C4") }, fg);
+      ft.textContent = "S";
+      const fc = svgEl("text", { y:26, class:"cap" }, fg);
+      fc.textContent = en.short.toUpperCase();
+      fg.addEventListener("click", (e) => { e.stopPropagation(); startId = en.id; selId = null; drawMap(); showDirections(); syncChrome(); });
+    });
+    // route + markers
+    if (destId && deptById(destId)) {
+      const rt = routeTo(destId);
+      svgEl("path", { d:rt.path, class:"route-line" }, root);
+      const dg = geom(deptById(destId));
+      const rl = svgEl("text", { x:dg.x + dg.w / 2, y:dg.y - 8, class:"route-len" }, root);
+      rl.textContent = "≈ " + rt.meters + " m";
+      makeMarker(root, startId, "S", "#0E79C4");
+      makeMarker(root, destId, "D", "#f97316");
+    }
+    // manual route waypoints (draggable) — shown in edit mode
+    if (editOn) LAYOUT.ways().forEach((w, i) => {
+      const c = svgEl("circle", { cx:w.x, cy:w.y, r:8, class:"way-pt" }, root);
+      c.addEventListener("pointerdown", (e) => { e.stopPropagation(); beginWayDrag(e, i); });
+      const n = svgEl("text", { x:w.x, y:w.y + 3, class:"way-num" }, root);
+      n.textContent = (i + 1);
+    });
+    // edit handles for selected room + wall endpoints
+    if (editOn && selId && deptById(selId)) renderHandles(root, deptById(selId));
+    // doors — edit mode: draggable handle; patient view: tap-to-route icon.
+    // Either way the guided arrow ends AT the door (never crosses a wall).
+    allRooms().forEach((d) => {
+      const g = geom(d);
+      const dp = doorPoint(d, g);
+      if (!dp) return;
+      if (editOn) {
+        const dg = svgEl("g", { class:"door-handle", "data-id":d.id, transform:"translate(" + dp.x + "," + dp.y + ")" }, root);
+        svgEl("circle", { r:9, class:"door-handle-bg" }, dg);
+        const dt = svgEl("text", { y:3, class:"door-handle-t" }, dg);
+        dt.textContent = "🚪";
+        dg.addEventListener("pointerdown", (e) => beginDoorDrag(e, d));
+      } else if (d.id !== destId) {
+        const dg = svgEl("g", { class:"door-ico", "data-id":d.id, transform:"translate(" + dp.x + "," + dp.y + ")" }, root);
+        svgEl("circle", { r:10, class:"door-ico-bg" }, dg);
+        const dt = svgEl("text", { y:3.5, class:"door-ico-t" }, dg);
+        dt.textContent = "🚪";
+        dg.addEventListener("click", (e) => {
+          e.stopPropagation();
+          destId = d.id; selId = d.id;
+          drawMap(); renderList(); showDirections(); syncChrome();
+        });
+      }
+    });
+    LAYOUT.chairs().forEach((ch, i) => renderChair(root, ch, i));
+    
+  }
+
+  function makeMarker(root, id, label, color) {
+    if (isEntrance(id)) return;
+    const d = deptById(id); if (!d) return;
+    const geo = geom(d);
+    const dp = doorPoint(d, geo);
+    const c = dp || centerOf(geo);
+    const gEl = svgEl("g", { class:"marker", "data-id":id, transform:"translate(" + c.x + "," + c.y + ")" }, root);
+    svgEl("circle", { r:13, fill:color, class:"mbody" }, gEl);
+    const t = svgEl("text", { y:4.5, class:"mtext" }, gEl);
+    t.textContent = label;
+    gEl.addEventListener("pointerdown", (e) => { e.stopPropagation(); beginMarkerDrag(e, id, gEl); });
+  }
+  /* ================= BUILD PAGE ================= */
+  function buildPage() {
+    const _sess = DB.session();
+    const can = !!(_sess && _sess.role === "superadmin"); // edit toolbar: super admin only
+    renderLayout({ page:"guide-map.html", title:"Guide Map", content:`
+    <div class="gm-wrap">
+      <aside class="gm-side card">
+        <div class="card-head"><h3>Find a room</h3><p class="sub">Search, tap a room, then follow the route.</p></div>
+        <div class="card-body">
+          <div class="gm-search-row">
+            <span class="s-ico">🔍</span>
+            <input type="text" class="input" id="gmSearch" placeholder="Search room, number, category..." />
+          </div>
+          <div class="gm-room-list" id="gmList"></div>
+          <div class="gm-legend" style="margin-top:12px">
+            <span><span class="lg-box lg-dest"></span> Destination</span>
+            <span><span class="lg-box lg-corr"></span> Corridor</span>
+          </div>
+        </div>
+      </aside>
+      <section class="gm-map-card card">
+        <div class="card-head"><h3>Ground Floor</h3><p class="sub" id="gmCount"></p></div>
+        <div class="card-body">
+          <div class="gm-toolbar">
+            ${can ? `
+              <span class="st-label">From
+                <select id="startSel" title="Saan manggagaling ang pasyente"></select>
+              </span>
+              <span class="st-label">End: <b id="destName">—</b></span>
+              <button class="chip-btn" id="btnDir">🧭 Directions</button>
+              <button class="chip-btn" id="btnClear">✖ Clear</button>
+              <button class="chip-btn" id="btnEdit">✏️ Edit layout</button>
+            ` : ""}
+            <span class="spacer"></span>
+            <span class="zoom-grp" aria-label="Map zoom controls">
+              <button class="chip-btn" id="btnZoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+              <span id="zoomLbl">100%</span>
+              <button class="chip-btn" id="btnZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+              <button class="chip-btn" id="btnZoomReset" title="Reset map view" aria-label="Reset map view">↺</button>
+            </span>
+            <button class="chip-btn" id="btnPrintMap" onclick="printGuideMap()" title="Print the guide map">🖨️ Print Map</button>
+            <button class="chip-btn" id="btnFullTop" title="Toggle map full screen">⛶ Fullscreen</button>
+          </div>
+          <div class="gm-subtoolbar" id="gmSub" hidden>
+            <span class="st-label">🟠 <button class="chip-btn" id="btnAddWay">Daan (waypoint)</button></span>
+            <span class="st-label">💺 <button class="chip-btn" id="btnAddChair">Upuan</button></span>
+            <span class="st-label">📦 <button class="chip-btn" id="btnAddBox">Box</button></span>
+            <button class="chip-btn" id="btnDrawLine">📏 Draw line</button>
+            <span class="st-label">🧱 Columns
+              <select id="colSel" title="Ilang column ang selected room/box">
+                <option value="1">1</option><option value="2">2</option>
+                <option value="3">3</option><option value="4">4</option>
+              </select>
+            </span>
+            <span class="st-label">▤ Rows
+              <select id="rowSel" title="Ilang row ang selected room/box">
+                <option value="1">1</option><option value="2">2</option>
+                <option value="3">3</option><option value="4">4</option>
+              </select>
+            </span>
+            <button class="chip-btn" id="btnDelSel">🗑 Delete selected</button>
+            <button class="chip-btn" id="btnRename">✏️ Rename</button>
+            <button class="chip-btn" id="btnResetGeo">↺ Reset geometry</button>
+            <button class="chip-btn on" id="btnDone">✔ Done</button>
+          </div>
+          <div class="gm-holder" id="gmHolder">
+            <svg id="gmSvg" viewBox="0 0 ${VB_W} ${VB_H}" role="img" aria-label="Clinic floor plan"></svg>
+          </div>
+          <div class="gm-hint" id="gmHint">💡 Patient starts at the entrance — click a room and follow the orange arrow. Drag the map to move, use the mouse wheel or zoom buttons to inspect.</div>
+          <div class="route-box" id="gmRoute" hidden></div>
+        </div>
+        <button type="button" class="gm-exit-full" onclick="toggleFull()" aria-label="Exit fullscreen map">⛶ Exit Fullscreen</button>
+      </section>
+    </div>
+    <div class="modal-backdrop" id="gmModal"><div class="modal" style="max-width:460px">
+      <div class="modal-head"><h3 id="gmModalTitle">Rename</h3><button class="modal-close" onclick="App.closeModal('gmModal')">&times;</button></div>
+      <div class="modal-body" id="gmModalBody"></div>
+      <div class="modal-foot" id="gmModalFoot"></div>
+    </div></div>` });
+
+    svg = document.getElementById("gmSvg");
+    holder = document.getElementById("gmHolder");
+    holder.addEventListener("pointerdown", startPan);
+    holder.addEventListener("wheel", zoomAtPointer, { passive:false });
+    holder.addEventListener("click", (e) => { if (justPanned) { e.stopPropagation(); e.preventDefault(); } }, true);
+    renderList();
+    document.getElementById("gmSearch").addEventListener("input", (e) => { query = e.target.value; renderList(); drawMap(); });
+    const bd = document.getElementById("btnDir"); if (bd) bd.addEventListener("click", showDirections);
+    const bc = document.getElementById("btnClear"); if (bc) bc.addEventListener("click", () => { destId = null; selId = null; selWay = -1; selChair = -1; document.getElementById("gmRoute").hidden = true; drawMap(); renderList(); });
+    const be = document.getElementById("btnEdit");
+    if (be) be.addEventListener("click", toggleEdit);
+    syncStartSel(); syncCols(); applyZoom();
+    const ss = document.getElementById("startSel");
+    if (ss) ss.addEventListener("change", (e) => { startId = e.target.value; drawMap(); showDirections(); });
+    const zi = document.getElementById("btnZoomIn"); if (zi) zi.addEventListener("click", () => setZoom(zoom + 0.25));
+    const zo = document.getElementById("btnZoomOut"); if (zo) zo.addEventListener("click", () => setZoom(zoom - 0.25));
+    const zr = document.getElementById("btnZoomReset"); if (zr) zr.addEventListener("click", resetMapView);
+    document.getElementById("colSel").addEventListener("change", (e) => {
+      if (!selId || !deptById(selId)) { App.toast("Select a room or box first."); e.target.value = "1"; return; }
+      LAYOUT.setCols(selId, parseInt(e.target.value, 10) || 1); drawMap();
+      App.toast("Columns set to " + e.target.value + ".");
+    });
+    document.getElementById("rowSel").addEventListener("change", (e) => {
+      if (!selId || !deptById(selId)) { App.toast("Select a room or box first."); e.target.value = "1"; return; }
+      LAYOUT.setRows(selId, parseInt(e.target.value, 10) || 1); drawMap();
+      App.toast("Rows set to " + e.target.value + ".");
+    });
+    svg.addEventListener("click", () => { if (!editOn) { selWay = -1; selChair = -1; } });
+    drawMap();
+  }
+
+  function setZoom(z) { zoomAround(z); }
+  function resetMapView() { zoom = 1; panX = 0; panY = 0; applyZoom(); }
+  function applyZoom() {
+    if (!svg) return;
+    clampPan();
+    svg.style.width = "100%";
+    svg.style.height = "100%";
+    svg.style.transform = "translate(" + panX + "px, " + panY + "px) scale(" + zoom + ")";
+    const l = document.getElementById("zoomLbl");
+    if (l) l.textContent = Math.round(zoom * 100) + "%";
+  }
+
+  /* Print the guide map — clones the live SVG, resets any zoom/pan, inlines the
+     page CSS so the floor plan renders standalone, and sends it to the print sheet.
+     The sheet is an exact A4-LANDSCAPE box (.gm-p-sheet = 289x204mm; the page
+     <style> overrides this document's @page to landscape) so the printed map
+     fills ONE WHOLE bond-paper page instead of stopping halfway down the sheet. */
+  function printGuideMap() {
+    const src = document.getElementById("gmSvg");
+    if (!src) { App.toast("⚠️", "Walang map na ma-print."); return; }
+    const clone = src.cloneNode(true);
+    // Stretch to the full map box; the default preserveAspectRatio ("meet") keeps
+    // the whole floor plan visible and centred inside the A4 landscape sheet.
+    clone.setAttribute("style", "position:absolute;left:0;top:0;width:100%;height:100%;display:block;transform:none;");
+    // Embed the page's <style> block so SVG CSS classes (room, wall, door, ...) survive standalone printing.
+    const pageStyle = document.querySelector("head > style");
+    if (pageStyle) {
+      const st = document.createElementNS("http://www.w3.org/2000/svg", "style");
+      st.textContent = pageStyle.textContent;
+      clone.insertBefore(st, clone.firstChild);
+    }
+    const svgMarkup = new XMLSerializer().serializeToString(clone);
+    const html = `
+      <div class="gm-p-sheet">
+        <div class="gm-p-head">
+          <div>
+            <div class="gm-p-org">Rever Medical Center, Inc.</div>
+            <div class="gm-p-title">Guide Map — Ground Floor</div>
+          </div>
+          <div class="gm-p-meta">Printed ${fmtDateTime(new Date().toISOString())}</div>
+        </div>
+        <div class="gm-p-map">${svgMarkup}</div>
+        <div class="gm-p-legend">
+          <span>🟧 Destination</span><span>⬛ Corridor</span><span>↳ Follow the route arrows from the entrance.</span>
+        </div>
+      </div>`;
+    App.printSheet(html);
+  }
+
+  function syncStartSel() {
+    const s = document.getElementById("startSel"); if (!s) return;
+    let h = ENTRANCES.map((e) => "<option value=\"" + e.id + "\">" + e.name + "</option>").join("");
+    h += allRooms().map((d) => "<option value=\"" + d.id + "\">" + App.esc(deptName(d)) + (roomNo(d) ? " - " + App.esc(roomNo(d)) : "") + "</option>").join("");
+    s.innerHTML = h; s.value = startId;
+    const dn = document.getElementById("destName");
+    if (dn) dn.textContent = (destId && deptById(destId)) ? deptName(deptById(destId)) : "-";
+  }
+  function syncChrome() { syncStartSel(); }
+  function syncCols() {
+    const c = document.getElementById("colSel"); if (c) c.value = String((selId && LAYOUT.cols()[selId]) || 1);
+    const r = document.getElementById("rowSel"); if (r) r.value = String((selId && LAYOUT.rows()[selId]) || 1);
+    syncStartSel();
+  }
+  function renderList() {
+    const list = document.getElementById("gmList");
+    const items = allRooms().filter((d) => roomMatches(d, query));
+    document.getElementById("gmCount").textContent = items.length + " of " + allRooms().length + " rooms";
+    if (!items.length) { list.innerHTML = `<div class="gm-empty">No rooms match your search.</div>`; return; }
+    list.innerHTML = items.map((d) =>
+      `<div class="gm-room-item${d.id === destId ? " active" : ""}" data-id="${d.id}">
+        <span class="r-ico">${d.icon}</span>
+        <span><span class="r-name">${App.esc(deptName(d))}${roomNo(d) ? " · " + App.esc(roomNo(d)) : ""}</span><br/>
+        <span class="r-cat">${App.esc(d.cat)}</span></span>
+      </div>`).join("");
+    list.querySelectorAll(".gm-room-item").forEach((n) =>
+      n.addEventListener("click", () => onRoomClick(n.getAttribute("data-id"))));
+  }
+
+  function onRoomClick(id) {
+    if (editOn) { selId = id; selWay = -1; selChair = -1; drawMap(); syncCols(); return; }
+    destId = id; selId = id;
+    drawMap(); renderList(); showDirections(); syncChrome();
+  }
+
+  function showDirections() {
+    const box = document.getElementById("gmRoute");
+    if (!destId || !deptById(destId)) { box.hidden = true; return; }
+    const dd2 = deptById(destId);
+    const rt = routeTo(destId);
+    box.hidden = false;
+    box.innerHTML = `🧭 From <b>${App.esc(startLabel(startId))}</b> to <b>${App.esc(deptName(dd2))}</b>` +
+      `${roomNo(dd2) ? " (" + App.esc(roomNo(dd2)) + ")" : ""} — about <b>${rt.meters} meters</b> along the guided path (routes around walls).`;
+  }
+  /* ================= EDIT MODE: toggle + rename + access ================= */
+  function toggleEdit() {
+    editOn = !editOn;
+    selWay = -1; selChair = -1; drawWallMode = false;
+    const bdl = document.getElementById("btnDrawLine"); if (bdl) bdl.classList.remove("on");
+    if (holder) holder.classList.remove("draw");
+    document.getElementById("gmSub").hidden = !editOn;
+    const be2 = document.getElementById("btnEdit"); if (be2) be2.classList.toggle("on", editOn);
+    document.getElementById("gmHint").textContent = editOn
+      ? "Edit mode: click a room to select (then Rename / set Columns & Rows). Drag empty map space to pan; drag a room to move it and pull a corner to resize. Add Daan waypoints + Upuan benches and drag them. Draw line for walls — click a line to select, drag its dots, or Delete."
+      : "Patient starts at the entrance — click a room and follow the orange arrow. Drag S / D to retarget. Drag the map to pan; use the mouse wheel or zoom controls to inspect.";
+    syncCols();
+    drawMap();
+  }
+
+  function openRename() {
+    if (!selId || !deptById(selId)) { App.toast("⚠️", "Select a room or box on the map first."); return; }
+    const d = deptById(selId);
+    const nc = LAYOUT.cols()[d.id] || 1;
+    const nr = LAYOUT.rows()[d.id] || 1;
+    const hasGrid = nc > 1 || nr > 1;
+    const names = LAYOUT.colNames()[d.id] || {};
+    const nos = LAYOUT.colNos()[d.id] || {};
+    let gridHtml = "";
+    if (hasGrid) {
+      gridHtml = `<div class="divider"></div><div class="text-sm text-muted mb-16"><strong>Grid ${nc} × ${nr}</strong> — set a room number + name for each cell. Leave a number blank for none.</div>`;
+      for (let r = 0; r < nr; r++) {
+        for (let c = 0; c < nc; c++) {
+          const i = r * nc + c;
+          gridHtml += `<div class="form-grid" style="margin-bottom:10px;">
+            <div class="field"><label>Cell R${r + 1}·C${c + 1} · number</label>
+              <input type="text" class="input gmColNo" data-i="${i}" value="${App.esc(nos[i] || "")}" placeholder="optional" maxlength="14" /></div>
+            <div class="field"><label>name</label>
+              <input type="text" class="input gmColName" data-i="${i}" value="${App.esc(names[i] || "")}" placeholder="e.g. Ward ${i + 1}" maxlength="30" /></div>
+          </div>`;
+        }
+      }
+    }
+    document.getElementById("gmModalTitle").textContent = isBox(d.id) ? "Edit room box" : "Edit room";
+    document.getElementById("gmModalBody").innerHTML = `
+      <div class="field"><label>Room name <span class="req">*</span></label>
+        <input type="text" class="input" id="gmName" value="${App.esc(deptName(d))}" maxlength="60" /></div>
+      <div class="field"><label>Room number <span class="sub">(optional)</span></label>
+        <input type="text" class="input" id="gmNo" value="${App.esc(roomNo(d))}" placeholder="e.g. RM 101" maxlength="14" /></div>
+      ${gridHtml}
+      <p class="sub">Applies to ${App.esc(d.id.toUpperCase())} on this device.</p>`;
+    document.getElementById("gmModalFoot").innerHTML = `
+      <button class="btn btn-outline" onclick="App.closeModal('gmModal')">Cancel</button>
+      <button class="btn btn-primary" id="gmSaveName">Save</button>`;
+    App.openModal("gmModal");
+    document.getElementById("gmSaveName").addEventListener("click", () => {
+      const v = document.getElementById("gmName").value.trim();
+      if (!v) { App.toast("⚠️", "Name cannot be empty."); return; }
+      GMAP.rename(selId, v);
+      GMAP.setNo(selId, document.getElementById("gmNo").value.trim());
+      document.querySelectorAll(".gmColName").forEach((inp) =>
+        LAYOUT.setColName(selId, parseInt(inp.getAttribute("data-i"), 10), inp.value.trim()));
+      document.querySelectorAll(".gmColNo").forEach((inp) =>
+        LAYOUT.setColNo(selId, parseInt(inp.getAttribute("data-i"), 10), inp.value.trim()));
+      App.closeModal("gmModal");
+      App.toast("✅", "Saved.");
+      drawMap(); renderList();
+    });
+  }
+
+  function openAccess() {
+    const users = DB.users.all();
+    const ed = GMAP.editors();
+    const rows = ["doctor", "secretary", "regular"].map((r) => {
+      const n = users.filter((u) => u.role === r).length;
+      const on = ed.includes(r);
+      const lbl = { doctor:"Doctor", secretary:"Secretary", regular:"Information Department" }[r];
+      return `<div class="acc-row">
+        <span class="acc-badge${on ? "" : " no"}">${on ? "CAN EDIT" : "VIEW ONLY"}</span>
+        <span class="a-meta"><span class="a-name">${lbl}s</span><br/>
+        <span class="a-sub">${n} account${n === 1 ? "" : "s"}</span></span>
+        <button class="chip-btn${on ? " on" : ""}" data-role="${r}">${on ? "On" : "Off"}</button>
+      </div>`;
+    }).join("");
+    document.getElementById("gmModalTitle").textContent = "Layout access";
+    document.getElementById("gmModalBody").innerHTML = `
+      <p class="sub">Super Admin can always edit. Grant other roles permission to rename rooms and edit geometry.</p>${rows}`;
+    document.getElementById("gmModalFoot").innerHTML = `
+      <button class="btn btn-outline" onclick="App.closeModal('gmModal')">Close</button>`;
+    App.openModal("gmModal");
+    document.querySelectorAll("#gmModalBody .chip-btn").forEach((b) =>
+      b.addEventListener("click", () => {
+        const r = b.getAttribute("data-role");
+        GMAP.setEditor(r, !GMAP.editors().includes(r));
+        openAccess();
+      }));
+  }
+  /* ================= EDIT MODE: drag / resize / draw / delete (grid snap) ================= */
+  function svgPoint(e) {
+    const r = holder.getBoundingClientRect();
+    const w = holder.clientWidth || r.width;
+    const h = holder.clientHeight || r.height;
+    return {
+      x:((e.clientX - r.left - panX) / zoom) * VB_W / w,
+      y:((e.clientY - r.top - panY) / zoom) * VB_H / h,
+    };
+  }
+
+  function renderCols(gR, d, g) {
+    const nc = LAYOUT.cols()[d.id] || 1;
+    const nr = LAYOUT.rows()[d.id] || 1;
+    if (nc <= 1 && nr <= 1) return;
+    const names = LAYOUT.colNames()[d.id] || {};
+    const nos = LAYOUT.colNos()[d.id] || {};
+    for (let i = 1; i < nc; i++) {
+      const xx = g.x + g.w * i / nc;
+      svgEl("line", { x1:xx, y1:g.y + 4, x2:xx, y2:g.y + g.h - 4, class:"col-div" }, gR);
+    }
+    for (let j = 1; j < nr; j++) {
+      const yy = g.y + g.h * j / nr;
+      svgEl("line", { x1:g.x + 4, y1:yy, x2:g.x + g.w - 4, y2:yy, class:"col-div" }, gR);
+    }
+    for (let r = 0; r < nr; r++) {
+      for (let c = 0; c < nc; c++) {
+        const idx = r * nc + c;
+        const cx = g.x + g.w * (c + 0.5) / nc;
+        const cy = g.y + g.h * (r + 0.5) / nr;
+        const no = nos[idx] || "";
+        const nm = names[idx] || ("C" + (idx + 1));
+        const t = svgEl("text", { x:cx, y:cy + 3, class:"cell-tag" }, gR);
+        if (no) { const s = svgEl("tspan", { x:cx, dy:"0", class:"cell-no" }, t); s.textContent = no; }
+        const s2 = svgEl("tspan", { x:cx, dy: no ? "9" : "0", class:"" }, t); s2.textContent = nm;
+      }
+    }
+  }
+  function renderChair(root, ch, i) {
+    const n = ch.rows || 5;
+    const seatW = 16, gap = 6, totalW = n * seatW + (n - 1) * gap;
+    const selected = (i === selChair);
+    const cg = svgEl("g", { class:"chair-g" + (selected ? " sel" : ""), transform:"translate(" + ch.x + "," + ch.y + ")" }, root);
+    if (selected) svgEl("rect", { x:-8, y:-8, width:totalW + 16, height:56, rx:6, fill:"none", stroke:"#0A5E9C", "stroke-width":2, "stroke-dasharray":"5 4" }, cg);
+    svgEl("rect", { x:0, y:0, width:totalW, height:12, rx:3, fill:"#cbd5e1", stroke:"#64748b", "stroke-width":1 }, cg);
+    for (let k = 0; k < n; k++) {
+      svgEl("rect", { x:k * (seatW + gap), y:16, width:seatW, height:16, rx:2, fill:"#e2e8f0", stroke:"#64748b", "stroke-width":1 }, cg);
+    }
+    const t = svgEl("text", { x:totalW / 2, y:44, class:"chair-lbl" }, cg);
+    t.textContent = n + " seats";
+    cg.addEventListener("pointerdown", (e) => { e.stopPropagation(); beginChairDrag(e, i); });
+  }
+  function renderHandles(root, d) {
+    const g = geom(d);
+    svgEl("rect", { x:g.x, y:g.y, width:g.w, height:g.h, fill:"none",
+      stroke:"#0E79C4", "stroke-width":1.5, "stroke-dasharray":"6 4" }, root);
+    [["nw", g.x, g.y], ["ne", g.x + g.w, g.y], ["sw", g.x, g.y + g.h], ["se", g.x + g.w, g.y + g.h]].forEach((h) => {
+      const el = svgEl("rect", { x:h[1] - 7, y:h[2] - 7, width:14, height:14, rx:3, class:"rh", "data-c":h[0] }, root);
+      el.addEventListener("pointerdown", (e) => { e.stopPropagation(); beginResize(e, d, h[0]); });
+    });
+  }
+
+  function beginMove(e, d) {
+    e.stopPropagation();
+    selId = d.id; selWall = -1; selWay = -1; selChair = -1; syncCols();
+    const g0 = geom(d), p0 = svgPoint(e);
+    let moved = false;
+    const mv = (ev) => {
+      const p = svgPoint(ev), dx = p.x - p0.x, dy = p.y - p0.y;
+      if (!moved && Math.hypot(dx, dy) < 3) return;
+      moved = true; ev.preventDefault();
+      LAYOUT.setRoom(d.id, { x:g0.x + dx, y:g0.y + dy, w:g0.w, h:g0.h });
+      drawMap();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+      if (moved) {
+        const g = LAYOUT.rooms()[d.id] || g0;
+        LAYOUT.setRoom(d.id, { x:snap(g.x), y:snap(g.y), w:g.w, h:g.h });
+        drawMap(); App.toast("✅", "Room moved.");
+      } else { drawMap(); }
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+  }
+
+  function beginResize(e, d, corner) {
+    e.stopPropagation(); e.preventDefault();
+    const g0 = geom(d), p0 = svgPoint(e);
+    let moved = false;
+    const mv = (ev) => {
+      const p = svgPoint(ev), dx = p.x - p0.x, dy = p.y - p0.y;
+      if (!moved && Math.hypot(dx, dy) < 3) return;
+      moved = true;
+      let g = { x:g0.x, y:g0.y, w:g0.w, h:g0.h };
+      if (corner.includes("e")) g.w = Math.max(24, g0.w + dx);
+      if (corner.includes("s")) g.h = Math.max(18, g0.h + dy);
+      if (corner.includes("w")) { g.x = g0.x + dx; g.w = Math.max(24, g0.w - dx); }
+      if (corner.includes("n")) { g.y = g0.y + dy; g.h = Math.max(18, g0.h - dy); }
+      LAYOUT.setRoom(d.id, g);
+      drawMap();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+      if (moved) {
+        const g = LAYOUT.rooms()[d.id] || g0;
+        LAYOUT.setRoom(d.id, { x:snap(g.x), y:snap(g.y), w:Math.max(24, snap(g.w)), h:Math.max(18, snap(g.h)) });
+        drawMap(); App.toast("✅", "Room resized.");
+      }
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+  }
+
+  /* Presentation: unlimited pan — the map can be dragged anywhere, no bounds.
+     Previously this clamped panX/panY to the holder (pinned to 0 at 100% zoom,
+     non-fullscreen), which blocked free dragging. Intentionally a no-op so the
+     map can be dragged even if it overflows the viewport. */
+  function clampPan() {
+    // no bounds: free drag/pan with no limit
+  }
+
+  function zoomAround(nextZoom, x, y) {
+    if (!holder) return;
+    const next = Math.min(3.5, Math.max(0.5, Math.round(nextZoom * 100) / 100));
+    const rect = holder.getBoundingClientRect();
+    const px = x === undefined ? holder.clientWidth / 2 : x - rect.left;
+    const py = y === undefined ? holder.clientHeight / 2 : y - rect.top;
+    const ratio = next / zoom;
+    panX = px - (px - panX) * ratio;
+    panY = py - (py - panY) * ratio;
+    zoom = next;
+    clampPan();
+    applyZoom();
+  }
+
+  /* Drag to pan the map itself instead of scrolling its container. */
+  function startPan(e) {
+    if (drawWallMode) return;            // wall drawing takes priority
+    if (e.button !== undefined && e.button !== 0) return;
+    if (editOn && e.target.closest && e.target.closest(".room,.marker,.way-pt,.chair-g,.door-handle,.door-ico,.wl-hit,.wp,.rh,.ent-flag")) return;
+    const sx = e.clientX, sy = e.clientY, px = panX, py = panY;
+    let moved = false;
+    const mv = (ev) => {
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      if (!moved && Math.hypot(dx, dy) < 4) return;   // click threshold
+      moved = true; justPanned = true; holder.classList.add("is-panning");
+      panX = px + dx; panY = py + dy;
+      clampPan();
+      applyZoom();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      holder.classList.remove("is-panning");
+      if (moved) setTimeout(() => { justPanned = false; }, 0);   // clear after the click fires
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  }
+
+  function zoomAtPointer(e) {
+    e.preventDefault();
+    const factor = Math.exp(-e.deltaY * 0.001);
+    zoomAround(zoom * factor, e.clientX, e.clientY);
+  }
+
+  function onSvgDown(e) {
+    if (!(editOn && drawWallMode)) return;
+    e.preventDefault();
+    const p0 = svgPoint(e);
+    let p1 = { x:p0.x, y:p0.y };
+    const mv = (ev) => {
+      p1 = svgPoint(ev);
+      drawPreview = "M" + pt(snap(p0.x), snap(p0.y)) + " L" + pt(snap(p1.x), snap(p1.y));
+      drawMap();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+      const a = { x1:snap(p0.x), y1:snap(p0.y), x2:snap(p1.x), y2:snap(p1.y) };
+      drawPreview = null;
+      if (Math.hypot(a.x2 - a.x1, a.y2 - a.y1) >= 10) { LAYOUT.addWall(a); App.toast("✅", "Wall added."); }
+      drawMap();
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+  }
+
+  function beginWallEndDrag(e, end) {
+    e.preventDefault();
+    const i = selWall, w0 = Object.assign({}, LAYOUT.walls()[i]), p0 = svgPoint(e);
+    let moved = false;
+    const mv = (ev) => {
+      const p = svgPoint(ev), dx = p.x - p0.x, dy = p.y - p0.y;
+      if (!moved && Math.hypot(dx, dy) < 3) return;
+      moved = true;
+      const dd = LAYOUT.load();
+      dd.walls[i] = {
+        x1:w0.x1 + (end === "a" ? dx : 0), y1:w0.y1 + (end === "a" ? dy : 0),
+        x2:w0.x2 + (end === "b" ? dx : 0), y2:w0.y2 + (end === "b" ? dy : 0)
+      };
+      LAYOUT.save(dd); drawMap();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+      if (moved) {
+        const dd = LAYOUT.load(), w = dd.walls[i];
+        w.x1 = snap(w.x1); w.y1 = snap(w.y1); w.x2 = snap(w.x2); w.y2 = snap(w.y2);
+        LAYOUT.save(dd); drawMap();
+      }
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+  }
+
+  function beginMarkerDrag(e, id, g) {
+    e.preventDefault();
+    g.classList.add("dragging");
+    const isStart = (id === startId);
+    const mv = (ev) => {
+      const p = svgPoint(ev);
+      g.setAttribute("transform", "translate(" + p.x + "," + p.y + ")");
+    };
+    const up = (ev) => {
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+      g.classList.remove("dragging");
+      const p = svgPoint(ev);
+      const hit = allRooms().find((d) => {
+        const gg = geom(d);
+        return p.x >= gg.x && p.x <= gg.x + gg.w && p.y >= gg.y && p.y <= gg.y + gg.h;
+      });
+      if (hit) { if (isStart) startId = hit.id; else destId = hit.id; selId = hit.id; }
+      drawMap(); renderList(); showDirections(); syncChrome(); syncCols();
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+  }
+  // Drag a room's door icon to reposition it along any of the room's edges.
+  function beginDoorDrag(e, d) {
+    e.stopPropagation(); e.preventDefault();
+    selId = d.id; selWall = -1; selWay = -1; selChair = -1;
+    const g0 = geom(d);
+    let moved = false;
+    const mv = (ev) => {
+      const p = svgPoint(ev);
+      const upd = doorFromPoint(d, g0, p);
+      LAYOUT.setDoor(d.id, upd.edge, upd.t);
+      moved = true;
+      drawMap();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+      if (moved) App.toast("🚪", "Door moved. Route now ends here.");
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+  }
+  function beginWayDrag(e, i) {
+    e.stopPropagation(); e.preventDefault();
+    selWay = i; selChair = -1; selId = null;
+    const arr = LAYOUT.ways(); if (!arr[i]) return;
+    const w0 = { x:arr[i].x, y:arr[i].y }, p0 = svgPoint(e);
+    const mv = (ev) => { const p = svgPoint(ev); arr[i] = { x:snap(w0.x + p.x - p0.x), y:snap(w0.y + p.y - p0.y) }; LAYOUT.setWays(arr); drawMap(); };
+    const up = () => { window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
+  }
+  function beginChairDrag(e, i) {
+    e.stopPropagation();
+    selChair = i; selId = null; selWay = -1; selWall = -1;
+    const arr = LAYOUT.chairs(); if (!arr[i]) return;
+    const c0 = { x:arr[i].x, y:arr[i].y }, p0 = svgPoint(e);
+    let moved = false;
+    const mv = (ev) => {
+      const p = svgPoint(ev), dx = p.x - p0.x, dy = p.y - p0.y;
+      if (!moved && Math.hypot(dx, dy) < 3) return;
+      moved = true; ev.preventDefault();
+      arr[i] = { x:snap(c0.x + dx), y:snap(c0.y + dy), rows: arr[i].rows || 5 };
+      LAYOUT.setChairs(arr); drawMap();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+      if (!moved) drawMap();
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+  }
+  function addWay() {
+    const arr = LAYOUT.ways().slice();
+    const last = arr.length ? arr[arr.length - 1] : { x:CORR_X, y:430 };
+    const nx = last.x + 30 > VB_W - 40 ? last.x - 30 : last.x + 30;
+    arr.push({ x:snap(nx), y:snap(last.y) });
+    LAYOUT.setWays(arr); drawMap();
+    App.toast("🟠", "Waypoint added — drag it onto the route.");
+  }
+  function addChair() {
+    const arr = LAYOUT.chairs().slice();
+    const last = arr.length ? arr[arr.length - 1] : { x:800, y:520 };
+    arr.push({ x:snap(Math.min(last.x, VB_W - 140)), y:snap(last.y), rows: 5 });
+    LAYOUT.setChairs(arr); drawMap();
+    App.toast("💺", "Waiting bench added (5 seats) — drag it into place.");
+  }
+  function addBox() {
+    const id = "bx" + Date.now().toString(36);
+    LAYOUT.addBox({ id:id, name:"New Room", no:"", icon:"🚪", cat:"Custom", x:snap(CORR_X - 70), y:480, w:140, h:70, door:"L" });
+    selId = id; selWay = -1; selChair = -1;
+    drawMap(); renderList(); syncCols();
+    App.toast("📦", "Room box added — drag to move, set Columns, then Rename.");
+  }
+  function deleteSelected() {
+    if (selChair >= 0 && LAYOUT.chairs()[selChair] !== undefined) {
+      const a = LAYOUT.chairs().slice(); a.splice(selChair, 1); LAYOUT.setChairs(a); selChair = -1; drawMap(); App.toast("🗑", "Bench deleted."); return;
+    }
+    if (selWay >= 0 && LAYOUT.ways()[selWay] !== undefined) {
+      const a = LAYOUT.ways().slice(); a.splice(selWay, 1); LAYOUT.setWays(a); selWay = -1; drawMap(); App.toast("🗑", "Waypoint deleted."); return;
+    }
+    if (selWall >= 0 && LAYOUT.walls()[selWall] !== undefined) {
+      LAYOUT.delWall(selWall); selWall = -1; drawMap(); App.toast("🗑", "Line deleted."); return;
+    }
+    if (selId && isBox(selId)) {
+      const a = LAYOUT.boxes().filter((b) => b.id !== selId); LAYOUT.setBoxes(a); selId = null; drawMap(); renderList(); App.toast("🗑", "Room box deleted."); return;
+    }
+    if (selId && deptById(selId)) {
+      LAYOUT.delRoom(selId); selId = null; drawMap(); renderList(); App.toast("🗑", "Room deleted. (Restore via Reset geometry.)"); return;
+    }
+    App.toast("⚠️", "Click a room, box, bench, waypoint or line first, then Delete.");
+  }
+  function toggleFull() {
+    const card = document.querySelector(".gm-map-card"); if (!card) return;
+    card.classList.toggle("gm-fullscreen");
+    const on = card.classList.contains("gm-fullscreen");
+    document.body.style.overflow = on ? "hidden" : "";
+    /* Real browser fullscreen so only the map is visible across the entire screen.
+       The .gm-fullscreen CSS overlay stays as the immersive layer + fallback on
+       browsers without the Fullscreen API (e.g. iOS Safari). */
+    try {
+      if (on && card.requestFullscreen) {
+        const p = card.requestFullscreen();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } else if (!on && document.fullscreenElement && document.exitFullscreen) {
+        const p = document.exitFullscreen();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      }
+    } catch (err) { /* overlay-only fullscreen still works without the API */ }
+    requestAnimationFrame(() => applyZoom());
+  }
+  /* ================= SUBTOOLBAR WIRING + BOOT ================= */
+  function wireSub() {
+    document.getElementById("btnAddWay").addEventListener("click", addWay);
+    document.getElementById("btnAddChair").addEventListener("click", addChair);
+    document.getElementById("btnAddBox").addEventListener("click", addBox);
+    document.getElementById("btnDelSel").addEventListener("click", deleteSelected);
+    const bf = document.getElementById("btnFullTop"); if (bf) bf.addEventListener("click", toggleFull);
+    document.getElementById("btnRename").addEventListener("click", openRename);
+    const bdl = document.getElementById("btnDrawLine");
+    if (bdl) bdl.addEventListener("click", () => {
+      drawWallMode = !drawWallMode;
+      bdl.classList.toggle("on", drawWallMode);
+      holder.classList.toggle("draw", drawWallMode);
+      drawMap();
+    });
+    svg.addEventListener("pointerdown", onSvgDown);
+    holder.addEventListener("dblclick", () => {
+      if (document.querySelector(".gm-map-card.gm-fullscreen")) toggleFull();
+    });
+    document.getElementById("btnResetGeo").addEventListener("click", async () => {
+      const yes = await App.confirm({
+        icon: "♻️", title: "Reset layout",
+        message: "Reset all moved rooms, boxes, waypoints and chairs, and restore deleted rooms? Names are kept.",
+        okLabel: "Yes, reset", cancelLabel: "Cancel", danger: true,
+      });
+      if (!yes) return;
+      LAYOUT.resetGeo(); selId = null; selWay = -1; selChair = -1; selBox = -1;
+      drawMap(); renderList(); syncCols(); App.toast("♻", "Positions reset. Names kept.");
+    });
+    document.getElementById("btnDone").addEventListener("click", toggleEdit);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && document.querySelector(".gm-map-card.gm-fullscreen")) toggleFull();
+    });
+    /* Keep the overlay in sync with the browser: leaving real fullscreen (Esc at
+       browser level, OS gesture) must also drop .gm-fullscreen and restore scroll. */
+    document.addEventListener("fullscreenchange", () => {
+      const c = document.querySelector(".gm-map-card"); if (!c) return;
+      if (!document.fullscreenElement && c.classList.contains("gm-fullscreen")) {
+        c.classList.remove("gm-fullscreen");
+        document.body.style.overflow = "";
+        requestAnimationFrame(() => applyZoom());
+      }
+    });
+  }
+
+  (function boot() {
+    requireAuth();
+    buildPage();
+    wireSub();
+  })();
+  </script>
+</body>
+</html>

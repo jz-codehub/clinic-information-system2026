@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reports & Income — Rever Medical Center, Inc.</title>
+  <link rel="icon" href="../assets/images/rmci-logo.jpg" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <script src="../assets/js/data.js"></script>
+  <script src="../assets/js/supabase.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script>
+    const session = requireAuth(["superadmin", "doctor", "secretary"]);
+    if (session) {
+      renderLayout({ page: "reports.html", title: "Reports & Income", subtitle: session.role === "superadmin" ? "Kabuuang kita at aktibidad ng lahat ng clinic rooms sa loob ng ospital." : DB.clinics.name(session.clinicId) + " — clinic performance summary.", content: buildReports() });
+    }
+
+    function buildReports() {
+      const isAdmin = session.role === "superadmin";
+      let list = DB.patients.all();
+      if (!isAdmin && session.clinicId) list = list.filter((p) => p.clinicId === session.clinicId);
+
+      const completed = list.filter((p) => p.status === STATUS.COMPLETED);
+      const totalIncome = completed.reduce((s, p) => s + (Number(p.fee) || 0), 0);
+      const consultations = completed.length;
+      const avgFee = consultations ? Math.round(totalIncome / consultations) : 0;
+
+      const today = todayKey();
+      const todayIncome = completed.filter((p) => (p.consultation && (p.consultation.date || "").slice(0, 10) === today))
+        .reduce((s, p) => s + (Number(p.fee) || 0), 0);
+
+      /* ---------- Activity growth (last 7 days) ---------- */
+      const series = App.dailySeries(list, 7);
+      const seriesConsult = App.dailySeries(completed, 7, "consultation");
+      const registeredToday = series[series.length - 1].value;
+      const registeredYesterday = series.length > 1 ? series[series.length - 2].value : 0;
+      const dayDelta = registeredToday - registeredYesterday;
+      const thisWeek = series.reduce((s, d) => s + d.value, 0);
+      const prevWeekSeries = App.dailySeries(list, 14).slice(0, 7);
+      const prevWeek = prevWeekSeries.reduce((s, d) => s + d.value, 0);
+      const weekDelta = thisWeek - prevWeek;
+
+      const cov = {
+        Employed: list.filter((p) => p.employed).length,
+        HMO: list.filter((p) => p.hmo).length,
+        PhilHealth: list.filter((p) => p.philhealth).length,
+        YAKAP: list.filter((p) => p.yakap).length,
+      };
+      const maxCov = Math.max(1, ...Object.values(cov));
+
+      const clinicRows = isAdmin ? DB.clinics.all().map((c) => {
+        const cp = DB.patients.byClinic(c.id);
+        const inc = cp.reduce((s, p) => s + (Number(p.fee) || 0), 0);
+        const comp = cp.filter((p) => p.status === STATUS.COMPLETED).length;
+        return `<tr>
+          <td><div class="cell-user"><div class="avatar" style="background:${c.color};">${c.icon}</div><div class="cu-name">${App.esc(c.room ? c.room : c.name)}</div></div></td>
+          <td>${cp.length}</td><td>${comp}</td>
+          <td class="fw-700" style="color:var(--success);">${fmtMoney(inc)}</td>
+        </tr>`;
+      }).join("") : "";
+
+      const recentConsults = completed.slice(-6).reverse();
+
+      return `
+        <div class="grid grid-4 mb-20">
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Completed Consultation Fees</div><div class="stat-value">${fmtMoney(totalIncome)}</div></div><div class="stat-ico ico-green">💰</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Today's Completed Fees</div><div class="stat-value">${fmtMoney(todayIncome)}</div></div><div class="stat-ico ico-blue">📅</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Consultations</div><div class="stat-value">${consultations}</div></div><div class="stat-ico ico-purple">⚕️</div></div></div>
+          <div class="stat"><div class="stat-top"><div><div class="stat-label">Average Completed Fee</div><div class="stat-value">${fmtMoney(avgFee)}</div></div><div class="stat-ico ico-amber">📊</div></div></div>
+        </div>
+
+        <div class="card mb-20">
+          <div class="card-head"><h3>📈 Activity Growth</h3>
+            <div class="flex-center gap-10">
+              <span class="text-sm text-muted">Today ${registeredToday}</span>
+              <span class="trend ${dayDelta >= 0 ? "up" : "down"}">${dayDelta >= 0 ? "▲" : "▼"} ${Math.abs(dayDelta)} vs kahapon</span>
+              <span class="trend ${weekDelta >= 0 ? "up" : "down"}">${weekDelta >= 0 ? "▲" : "▼"} ${Math.abs(weekDelta)} this week</span>
+            </div>
+          </div>
+          <div class="card-pad">
+            <p class="text-sm text-muted mb-16">Bilang ng bagong pasyente kada araw sa nakalipas na 7 araw (patient registrations).</p>
+            ${App.barChart(series)}
+          </div>
+        </div>
+
+        <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start;">
+          <div class="card">
+            <div class="card-head"><h3>Patient Coverage Breakdown</h3></div>
+            <div class="card-pad">
+              ${Object.entries(cov).map(([k, v]) => `
+                <div class="mb-16">
+                  <div class="flex-between text-sm mb-16"><span class="fw-600">${k}</span><span class="fw-700">${v} (${list.length ? Math.round(v / list.length * 100) : 0}%)</span></div>
+                  <div class="progress"><span style="width:${Math.round(v / maxCov * 100)}%"></span></div>
+                </div>`).join("")}
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h3>Clinic Activity Summary</h3></div>
+            <div class="table-wrap"><table class="tbl">
+              <thead><tr><th>Status</th><th>Count</th><th>Share</th></tr></thead>
+              <tbody>
+                ${Object.entries(STATUS_META).map(([key, meta]) => {
+                  const cnt = list.filter((p) => p.status === key).length;
+                  const pct = list.length ? Math.round(cnt / list.length * 100) : 0;
+                  return `<tr><td>${App.statusBadge(key)}</td><td class="fw-700">${cnt}</td><td class="cell-muted">${pct}%</td></tr>`;
+                }).join("")}
+              </tbody>
+            </table></div>
+          </div>
+        </div>
+
+        <div class="card mt-20">
+          <div class="card-head"><h3>⚕️ Consultation Activity</h3>
+            <span class="text-sm text-muted">Completed consultations • last 7 days</span>
+          </div>
+          <div class="card-pad">
+            ${App.barChart(seriesConsult, { color: "var(--purple)" })}
+          </div>
+        </div>
+
+        ${isAdmin ? `
+        <div class="card mt-20">
+          <div class="card-head"><h3>Completed Consultation Fees by Clinic Room</h3></div>
+          <div class="table-wrap"><table class="tbl">
+            <thead><tr><th>Clinic Room</th><th>Patients</th><th>Completed</th><th>Income</th></tr></thead>
+            <tbody>${clinicRows}</tbody>
+          </table></div>
+        </div>` : ""}
+
+        <div class="card mt-20">
+          <div class="card-head"><h3>Recent Consultations</h3></div>
+          <div class="table-wrap"><table class="tbl">
+            <thead><tr><th>Patient</th><th>Diagnosis</th><th>Doctor</th><th>Fee</th><th>Date</th></tr></thead>
+            <tbody>
+              ${recentConsults.length ? recentConsults.map((p) => `
+                <tr>
+                  <td><div class="cell-user"><div class="avatar">${initials(p.fullName)}</div><div><div class="cu-name">${App.esc(p.fullName)}</div><div class="cu-sub">${p.id}</div></div></div></td>
+                  <td>${App.esc(p.consultation.diagnosis || "—")}</td>
+                  <td class="cell-muted">${App.esc(p.consultation.doctor || "—")}</td>
+                  <td class="fw-700">${fmtMoney(p.fee)}</td>
+                  <td class="cell-muted">${fmtDate(p.consultation.date)}</td>
+                </tr>`).join("")
+                : `<tr><td colspan="5" class="cell-muted" style="text-align:center;">Wala pang nakumpletong consultation.</td></tr>`}
+            </tbody>
+          </table></div>
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>
