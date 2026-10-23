@@ -1527,7 +1527,7 @@ table.tbl tbody tr:hover { background: var(--primary-lighter); }
 #printArea.print-fit-one-page .registration-print .ab-strip { padding: 9px 12px; margin-bottom: 13px; }
 #printArea.print-fit-one-page .registration-print .registration-print-section {
   display: flex;
-  flex: 11 1 0;
+  flex: 7 1 0;
   flex-direction: column;
   min-height: 0;
   margin-bottom: 9px;
@@ -1535,23 +1535,55 @@ table.tbl tbody tr:hover { background: var(--primary-lighter); }
 }
 #printArea.print-fit-one-page .registration-print .registration-print-section:nth-of-type(2),
 #printArea.print-fit-one-page .registration-print .registration-print-section:nth-of-type(3) {
-  flex: 2 1 0;
+  flex: 3 1 0;
+}
+#printArea.print-fit-one-page .registration-print .ab-box-title {
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+  font-size: 13px;
+  letter-spacing: .07em;
+}
+#printArea.print-fit-one-page .registration-print .ab-num {
+  width: 21px;
+  height: 21px;
+  font-size: 11px;
 }
 #printArea.print-fit-one-page .registration-print .ab-info-grid {
   display: grid;
   flex: 1 1 auto;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-auto-rows: minmax(0, 1fr);
-  column-gap: 20px;
-  row-gap: 3px;
+  column-gap: 12px;
+  row-gap: 6px;
 }
 #printArea.print-fit-one-page .registration-print .ab-info-pair {
-  grid-template-columns: minmax(105px, .8fr) minmax(0, 1.2fr);
-  align-content: center;
-  padding: 3px 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid #dbe4ee;
+  border-radius: 4px;
+  background: #f8fbfe;
+  line-height: 1.25;
 }
-#printArea.print-fit-one-page .registration-print .ab-info-pair span { font-size: 9.5px; }
-#printArea.print-fit-one-page .registration-print .ab-info-pair strong { font-size: 10.5px; }
+#printArea.print-fit-one-page .registration-print .ab-info-pair span {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: .025em;
+  text-transform: uppercase;
+}
+#printArea.print-fit-one-page .registration-print .ab-info-pair strong {
+  min-width: 0;
+  color: #0f172a;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
 #printArea.print-fit-one-page .registration-print .ab-foot { margin-top: 2px; }
 
 @media print {
