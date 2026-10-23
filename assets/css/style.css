@@ -986,6 +986,7 @@ table.tbl tbody tr:hover { background: var(--primary-lighter); }
 
 @media print {
   @page { size: A4 portrait; margin: 3mm 4mm; }
+  @page registration { size: auto; margin: 10mm; }
 
   html, body {
     background: #fff !important;
@@ -1517,74 +1518,125 @@ table.tbl tbody tr:hover { background: var(--primary-lighter); }
 #printArea.print-fit-one-page .ab-foot { margin-top: auto; padding-top: 7px; }
 #printArea.print-fit-one-page .ab-meta { font-size: 8.5px; }
 
-#printArea.print-fit-one-page .registration-print {
-  height: 291mm;
-  min-height: 291mm;
-  padding: 5mm 6mm;
+#printArea.print-fit-registration .registration-print-frame {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 250mm;
+  margin: 0 auto;
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
-#printArea.print-fit-one-page .registration-print .ab-head { padding-bottom: 9px; }
-#printArea.print-fit-one-page .registration-print .ab-titlebar { margin: 13px 0 12px; }
-#printArea.print-fit-one-page .registration-print .ab-strip { padding: 9px 12px; margin-bottom: 13px; }
-#printArea.print-fit-one-page .registration-print .registration-print-section {
+#printArea.print-fit-registration .registration-print {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  transform: scale(var(--registration-print-scale, 1));
+  transform-origin: top left;
+}
+#printArea.print-fit-registration .registration-print .ab-head { padding-bottom: 6px; }
+#printArea.print-fit-registration .registration-print .ab-logo { width: 38px; height: 38px; }
+#printArea.print-fit-registration .registration-print .ab-org { font-size: 15px; }
+#printArea.print-fit-registration .registration-print .ab-contact { font-size: 8px; }
+#printArea.print-fit-registration .registration-print .ab-doc { padding: 3px 7px; }
+#printArea.print-fit-registration .registration-print .ab-doc .d-l { font-size: 7px; }
+#printArea.print-fit-registration .registration-print .ab-doc .d-v { font-size: 10px; }
+#printArea.print-fit-registration .registration-print .ab-titlebar { margin: 6px 0; }
+#printArea.print-fit-registration .registration-print .ab-title { font-size: 11px; letter-spacing: .12em; }
+#printArea.print-fit-registration .registration-print .ab-strip { gap: 3px 10px; padding: 5px 8px; margin-bottom: 6px; }
+#printArea.print-fit-registration .registration-print .ab-strip .s-name { font-size: 12px; }
+#printArea.print-fit-registration .registration-print .ab-strip .s-meta { font-size: 8px; }
+#printArea.print-fit-registration .registration-print .registration-print-section {
   display: flex;
   flex: 7 1 0;
   flex-direction: column;
   min-height: 0;
-  margin-bottom: 9px;
-  padding: 11px 14px;
+  margin-bottom: 4px;
+  padding: 5px 7px;
 }
-#printArea.print-fit-one-page .registration-print .registration-print-section:nth-of-type(2),
-#printArea.print-fit-one-page .registration-print .registration-print-section:nth-of-type(3) {
-  flex: 3 1 0;
+#printArea.print-fit-registration .registration-print .registration-print-section:nth-of-type(2),
+#printArea.print-fit-registration .registration-print .registration-print-section:nth-of-type(3) {
+  flex: 2 1 0;
 }
-#printArea.print-fit-one-page .registration-print .ab-box-title {
-  margin-bottom: 8px;
-  padding-bottom: 7px;
-  font-size: 13px;
-  letter-spacing: .07em;
+#printArea.print-fit-registration .registration-print .ab-box-title {
+  margin-bottom: 4px;
+  padding-bottom: 3px;
+  font-size: 10px;
+  letter-spacing: .06em;
 }
-#printArea.print-fit-one-page .registration-print .ab-num {
-  width: 21px;
-  height: 21px;
-  font-size: 11px;
+#printArea.print-fit-registration .registration-print .ab-num {
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
 }
-#printArea.print-fit-one-page .registration-print .ab-info-grid {
+#printArea.print-fit-registration .registration-print .ab-info-grid {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(7, minmax(0, 1fr));
   grid-auto-rows: minmax(0, 1fr);
-  column-gap: 12px;
-  row-gap: 6px;
+  align-content: stretch;
+  column-gap: 5px;
+  row-gap: 3px;
 }
-#printArea.print-fit-one-page .registration-print .ab-info-pair {
+#printArea.print-fit-registration .registration-print .registration-print-section:nth-of-type(2) .ab-info-grid,
+#printArea.print-fit-registration .registration-print .registration-print-section:nth-of-type(3) .ab-info-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+#printArea.print-fit-registration .registration-print .ab-info-pair {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 3px;
+  gap: 1px;
   min-width: 0;
-  padding: 5px 8px;
+  padding: 3px 4px;
   border: 1px solid #dbe4ee;
-  border-radius: 4px;
+  border-radius: 3px;
   background: #f8fbfe;
-  line-height: 1.25;
+  line-height: 1.15;
 }
-#printArea.print-fit-one-page .registration-print .ab-info-pair span {
+#printArea.print-fit-registration .registration-print .ab-info-pair span {
   color: #334155;
-  font-size: 12px;
+  font-size: 8.5px;
   font-weight: 800;
-  line-height: 1.2;
-  letter-spacing: .025em;
+  line-height: 1.1;
+  letter-spacing: .015em;
   text-transform: uppercase;
 }
-#printArea.print-fit-one-page .registration-print .ab-info-pair strong {
+#printArea.print-fit-registration .registration-print .ab-info-pair strong {
   min-width: 0;
   color: #0f172a;
-  font-size: 13.5px;
+  font-size: 10px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.15;
   overflow-wrap: anywhere;
 }
-#printArea.print-fit-one-page .registration-print .ab-foot { margin-top: 2px; }
+#printArea.print-fit-registration .registration-print .ab-foot { margin-top: 3px; padding-top: 4px; }
+#printArea.print-fit-registration .registration-print .ab-conf { font-size: 8px; }
+#printArea.print-fit-registration .registration-print .ab-meta { font-size: 7.5px; }
+
+#printArea.print-fit-registration .registration-print {
+  page: registration;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+#printArea.print-fit-registration .registration-print .ab-box-title {
+  break-after: avoid;
+  page-break-after: avoid;
+}
+#printArea.print-fit-registration .registration-print .ab-info-pair {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
 
 @media print {
   #printArea.print-fit-one-page {
@@ -1599,6 +1651,24 @@ table.tbl tbody tr:hover { background: var(--primary-lighter); }
   #printArea.print-fit-one-page .registration-print .registration-print-section {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+  #printArea.print-fit-registration {
+    display: block !important;
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    height: calc(100vh - 20mm);
+    min-height: 0;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  #printArea.print-fit-registration .registration-print-frame {
+    height: 100%;
+    min-height: 250mm;
+  }
+  #printArea.print-fit-registration .registration-print {
+    height: 100%;
+    min-height: 100%;
   }
   #printArea.print-fit-abstract {
     position: relative;

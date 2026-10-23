@@ -473,15 +473,19 @@ const App = {
   printSheet(html) {
     let area = document.getElementById("printArea");
     if (!area) { area = document.createElement("div"); area.id = "printArea"; document.body.appendChild(area); }
-    if (area.classList) area.classList.remove("print-fit-one-page", "print-fit-schedule", "print-fit-abstract");
+    if (area.classList) area.classList.remove("print-fit-one-page", "print-fit-schedule", "print-fit-abstract", "print-fit-registration");
     if (area.style && area.style.removeProperty) area.style.removeProperty("--print-scale");
     if (area.style && area.style.removeProperty) area.style.removeProperty("--abstract-print-scale");
+    if (area.style && area.style.removeProperty) area.style.removeProperty("--registration-print-scale");
     area.innerHTML = html;
     const fitSheet = area.querySelector ? area.querySelector(".ab-sheet") : null;
     const fitAbstract = area.querySelector ? area.querySelector(".ab-abstract-sheet") : null;
+    const fitRegistration = area.querySelector ? area.querySelector(".registration-print") : null;
+    const fitRegistrationFrame = area.querySelector ? area.querySelector(".registration-print-frame") : null;
     const fitWrap  = area.querySelector ? area.querySelector(".p-fit-wrap") : null;
     if (fitSheet || fitWrap) { if (area.classList) area.classList.add("print-fit-one-page"); }
     if (fitAbstract && area.classList) area.classList.add("print-fit-abstract");
+    if (fitRegistration && area.classList) area.classList.add("print-fit-registration");
     if (fitWrap && area.classList) area.classList.add("print-fit-schedule");
     const imgs = Array.prototype.slice.call(area.querySelectorAll("img"));
     let printed = false;
@@ -529,6 +533,29 @@ const App = {
         if (previousStyle === null) area.removeAttribute("style");
         else area.setAttribute("style", previousStyle);
         area.style.setProperty("--abstract-print-scale", String(scale));
+      }
+
+      if (fitRegistration && fitRegistrationFrame && area.style && area.style.setProperty) {
+        const previousStyle = area.getAttribute("style");
+        const previousSheetStyle = fitRegistration.getAttribute("style");
+        const previousFrameStyle = fitRegistrationFrame.getAttribute("style");
+        area.style.cssText = "position:fixed;display:block;visibility:hidden;left:-10000px;top:0;width:185mm;";
+        fitRegistration.style.cssText = "position:static;display:block;width:100%;height:auto;min-height:0;padding:0;transform:none;";
+        fitRegistrationFrame.style.cssText = "position:relative;width:185mm;height:auto;min-height:0;margin:0;";
+        const contentWidth = fitRegistration.scrollWidth;
+        const contentHeight = fitRegistration.scrollHeight;
+        const usableWidth = 185 * (96 / 25.4);
+        const usableHeight = 250 * (96 / 25.4);
+        const scaleW = contentWidth > 0 ? usableWidth / contentWidth : 1;
+        const scaleH = contentHeight > 0 ? usableHeight / contentHeight : 1;
+        const scale = Math.min(1, scaleW, scaleH);
+        if (previousSheetStyle === null) fitRegistration.removeAttribute("style");
+        else fitRegistration.setAttribute("style", previousSheetStyle);
+        if (previousFrameStyle === null) fitRegistrationFrame.removeAttribute("style");
+        else fitRegistrationFrame.setAttribute("style", previousFrameStyle);
+        if (previousStyle === null) area.removeAttribute("style");
+        else area.setAttribute("style", previousStyle);
+        area.style.setProperty("--registration-print-scale", String(scale));
       }
 
       window.print();

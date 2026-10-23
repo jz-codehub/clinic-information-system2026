@@ -403,6 +403,7 @@
         : "—";
       const logoPath = location.pathname.includes("/pages/") ? "../assets/images/rmci-logo.jpg" : "assets/images/rmci-logo.jpg";
       const html = `
+        <div class="registration-print-frame">
         <div class="ab-sheet registration-print">
           <div class="ab-head">
             <img class="ab-logo" src="${logoPath}" alt="Rever Medical Center" />
@@ -460,6 +461,7 @@
             <div class="ab-conf">Confidential Patient Information</div>
             <div class="ab-meta">Rever Medical Center, Inc. • Please keep this document secure.</div>
           </div>
+        </div>
         </div>
       `;
       App.printSheet(html);
